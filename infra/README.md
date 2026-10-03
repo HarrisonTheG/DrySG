@@ -1,0 +1,1 @@
+Infrastructure as Code (IaC) managed via Terraform. Handles cloud provisioning and deployment configurations.

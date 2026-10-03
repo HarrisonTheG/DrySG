@@ -10,4 +10,4 @@ AWS Lambda handlers built with FastAPI and Python. Contains the core backend bus
 Infrastructure as Code (IaC) managed via Terraform. Handles cloud provisioning and deployment configurations.
 
 ### /scripts
-Utility scripts for database seeding, automated testing, and development helpers
+Utility scripts for database seeding, automated testing, and development helpers.

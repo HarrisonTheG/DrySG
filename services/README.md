@@ -1,0 +1,1 @@
+AWS Lambda handlers built with FastAPI and Python. Contains the core backend business logic.
