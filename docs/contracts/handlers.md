@@ -10,6 +10,11 @@ Runtime: **Python 3.12**. Code root: `services/`. One deployment package (or lay
 
 The ingest Lambda runs the fixed NEA fetch, writes snapshots and then runs the alert trigger in the same invocation, so the number of NEA calls stays constant no matter how many subscribers there are. Set ingest **reserved concurrency = 1** so overlapping runs can't double-alert.
 
+Implementation status: Stream A currently supplies the collection/scoring/persistence
+portion of `handlers.ingest.handler`. The alert trigger remains Stream B's integration
+work; the current handler does not send alerts. See [data.md](data.md) for service
+entry points and API integration requirements.
+
 ## Environment variables
 | Name | Used by | Example |
 |---|---|---|
@@ -22,7 +27,7 @@ The ingest Lambda runs the fixed NEA fetch, writes snapshots and then runs the a
 | `SES_SENDER` | API (verification mail), Notifier | `alerts@drysg.example` (must be an SES verified identity) |
 | `APP_BASE_URL` | API, Notifier | CloudFront URL, used in verify and stop links |
 | `NEA_API_KEY` | Ingest, API (fallback) | Optional. NEA v2 currently works without a key; set one if rate limited |
-| `ONEMAP_TOKEN` | API | OneMap API token. Search works without one today but returns an "Authentication token missing" warning |
+| `ONEMAP_TOKEN` | API | Required for uncached OneMap searches. The client rejects authentication errors, including HTTP-200 warning responses |
 | `LOG_LEVEL` | all | `INFO` |
 
 ## SQS
@@ -54,6 +59,10 @@ Delivery is at-least-once. The notifier dedupes on `alert_id` with a conditional
 | Notifier | `sqs:ReceiveMessage/DeleteMessage/GetQueueAttributes` on `drysg-alerts`; `dynamodb:PutItem` on AlertLog; `dynamodb:UpdateItem` on MonitoringSession; `ses:SendEmail` from `SES_SENDER` |
 
 All three also need CloudWatch Logs (`AWSLambdaBasicExecutionRole`). Outbound internet for NEA and OneMap means the Lambdas should **not** be placed in a VPC (or need a NAT if they are).
+
+Stream A's `AreaSnapshotRepository.list_areas()` also requires `dynamodb:Scan` on
+AreaSnapshot for the API's area catalogue. Ingestion currently uses consistent
+`GetItem` reads and `BatchWriteItem` writes, within the permissions listed above.
 
 ## External endpoints called
 | Caller | URL |
