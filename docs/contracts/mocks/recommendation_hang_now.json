@@ -1,0 +1,29 @@
+{
+  "postal_code": "530123",
+  "area": "Hougang",
+  "score": 80,
+  "band": "Hang Now",
+  "sub_scores": {
+    "rain": 100.0,
+    "humidity": 58.6,
+    "wind": 88.8,
+    "temperature": 87.5
+  },
+  "veto": false,
+  "veto_reason": null,
+  "psi": {
+    "value": 48,
+    "level": "Good",
+    "region": "east"
+  },
+  "conditions": {
+    "rainfall_mm": 0,
+    "humidity_pct": 74.5,
+    "temp_c": 31.0,
+    "wind_knots": 4.2,
+    "forecast": "Fair (Day)",
+    "forecast_valid_to": "2026-10-04T14:30:00+08:00"
+  },
+  "degraded": false,
+  "updated_at": "2026-10-04T12:35:00+08:00"
+}

@@ -1,0 +1,6 @@
+{
+  "error": {
+    "code": "POSTAL_CODE_NOT_FOUND",
+    "message": "No address found for postal code 999999"
+  }
+}

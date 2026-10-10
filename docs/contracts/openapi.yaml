@@ -1,0 +1,272 @@
+openapi: 3.0.3
+info:
+  title: DrySG API
+  version: 0.1.0
+  description: |
+    Laundry drying recommendation and monitoring API.
+    Served by API Gateway -> API Lambda (FastAPI + Mangum).
+
+    All timestamps are ISO 8601 with Singapore offset (+08:00).
+    Errors use the shared `Error` schema.
+servers:
+  - url: http://localhost:8000
+    description: Local FastAPI (uvicorn)
+  - url: https://{apiId}.execute-api.ap-southeast-1.amazonaws.com
+    description: AWS (filled in by IaC)
+    variables:
+      apiId:
+        default: TBD
+
+paths:
+  /recommendation:
+    get:
+      summary: Current drying score for a postal code
+      description: |
+        Resolves the postal code to its nearest NEA forecast area and returns the
+        latest cached snapshot. Never calls NEA directly on the request path unless
+        no snapshot exists for the area (cold start fallback).
+      operationId: getRecommendation
+      parameters:
+        - name: postal
+          in: query
+          required: true
+          schema:
+            type: string
+            pattern: '^\d{6}$'
+          example: '570150'
+      responses:
+        '200':
+          description: Recommendation for the area
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Recommendation' }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '503': { $ref: '#/components/responses/Unavailable' }
+
+  /users:
+    post:
+      summary: Register an email and send a verification link
+      description: |
+        Idempotent. Re-sending to an unverified email issues a new token.
+        The emailed link points to the frontend: `{APP_BASE_URL}/verify?email=..&token=..`,
+        which then calls `POST /users/verify`.
+      operationId: registerUser
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [email]
+              properties:
+                email: { type: string, format: email }
+      responses:
+        '202':
+          description: Verification email sent (or already verified)
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/UserStatus' }
+        '400': { $ref: '#/components/responses/BadRequest' }
+
+  /users/verify:
+    post:
+      summary: Confirm email ownership with the emailed token
+      operationId: verifyUser
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [email, token]
+              properties:
+                email: { type: string, format: email }
+                token: { type: string }
+      responses:
+        '200':
+          description: Email verified
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/UserStatus' }
+        '400': { $ref: '#/components/responses/BadRequest' }
+
+  /monitoring:
+    post:
+      summary: Start monitoring (laundry is now hanging outside)
+      description: |
+        Requires a verified email. Only one active session per email; starting a new
+        one stops the previous. Sessions auto-expire after `expires_at`.
+      operationId: startMonitoring
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [email, postal_code]
+              properties:
+                email: { type: string, format: email }
+                postal_code: { type: string, pattern: '^\d{6}$' }
+      responses:
+        '201':
+          description: Session started
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/MonitoringSession' }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '403':
+          description: Email not verified
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Error' }
+        '404': { $ref: '#/components/responses/NotFound' }
+
+  /monitoring/{session_id}:
+    parameters:
+      - name: session_id
+        in: path
+        required: true
+        description: UUID4. Acts as the bearer secret for the session (also used in email stop links).
+        schema: { type: string, format: uuid }
+    get:
+      summary: Session status with the latest recommendation for its area
+      operationId: getMonitoring
+      responses:
+        '200':
+          description: Session
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/MonitoringSession' }
+        '404': { $ref: '#/components/responses/NotFound' }
+    delete:
+      summary: Stop monitoring (laundry brought in)
+      description: Idempotent. Stopping an already stopped/expired session returns 200.
+      operationId: stopMonitoring
+      responses:
+        '200':
+          description: Session stopped
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/MonitoringSession' }
+        '404': { $ref: '#/components/responses/NotFound' }
+
+components:
+  responses:
+    BadRequest:
+      description: Invalid input (e.g. malformed postal code or email, bad token)
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/Error' }
+    NotFound:
+      description: Postal code or session not found
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/Error' }
+    Unavailable:
+      description: Weather data temporarily unavailable
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/Error' }
+
+  schemas:
+    Error:
+      type: object
+      required: [error]
+      properties:
+        error:
+          type: object
+          required: [code, message]
+          properties:
+            code:
+              type: string
+              enum:
+                - INVALID_POSTAL_CODE
+                - POSTAL_CODE_NOT_FOUND
+                - INVALID_EMAIL
+                - INVALID_TOKEN
+                - EMAIL_NOT_VERIFIED
+                - SESSION_NOT_FOUND
+                - DATA_UNAVAILABLE
+                - INTERNAL_ERROR
+            message: { type: string }
+
+    Band:
+      type: string
+      enum: [Hang Now, Wait, Do Not Hang]
+
+    PsiLevel:
+      type: string
+      enum: [Good, Moderate, Unhealthy, Very Unhealthy, Hazardous]
+
+    SubScores:
+      type: object
+      description: Each 0-100, null if the input was missing.
+      properties:
+        rain: { type: number, nullable: true }
+        humidity: { type: number, nullable: true }
+        wind: { type: number, nullable: true }
+        temperature: { type: number, nullable: true }
+
+    CurrentConditions:
+      type: object
+      description: Flattened values for display. Null when unavailable.
+      properties:
+        rainfall_mm: { type: number, nullable: true, description: 5-minute rainfall total }
+        humidity_pct: { type: number, nullable: true }
+        temp_c: { type: number, nullable: true }
+        wind_knots: { type: number, nullable: true }
+        forecast: { type: string, nullable: true, example: Partly Cloudy (Day) }
+        forecast_valid_to: { type: string, format: date-time, nullable: true }
+
+    Psi:
+      type: object
+      nullable: true
+      properties:
+        value: { type: integer }
+        level: { $ref: '#/components/schemas/PsiLevel' }
+        region: { type: string, enum: [north, south, east, west, central] }
+
+    Recommendation:
+      type: object
+      required: [postal_code, area, score, band, sub_scores, veto, conditions, degraded, updated_at]
+      properties:
+        postal_code: { type: string }
+        area: { type: string, example: Hougang }
+        score: { type: integer, minimum: 0, maximum: 100 }
+        band: { $ref: '#/components/schemas/Band' }
+        sub_scores: { $ref: '#/components/schemas/SubScores' }
+        veto: { type: boolean }
+        veto_reason: { type: string, nullable: true, example: Rain detected at nearby station }
+        psi: { $ref: '#/components/schemas/Psi' }
+        conditions: { $ref: '#/components/schemas/CurrentConditions' }
+        degraded:
+          type: boolean
+          description: True if some inputs were missing and the score is less reliable
+        updated_at: { type: string, format: date-time, description: When the snapshot was computed }
+
+    UserStatus:
+      type: object
+      required: [email, verified]
+      properties:
+        email: { type: string, format: email }
+        verified: { type: boolean }
+
+    MonitoringSession:
+      type: object
+      required: [session_id, email, postal_code, area, status, started_at, expires_at]
+      properties:
+        session_id: { type: string, format: uuid }
+        email: { type: string, format: email }
+        postal_code: { type: string }
+        area: { type: string }
+        status: { type: string, enum: [active, stopped, expired] }
+        started_at: { type: string, format: date-time }
+        expires_at: { type: string, format: date-time }
+        stopped_at: { type: string, format: date-time, nullable: true }
+        last_alert_at: { type: string, format: date-time, nullable: true }
+        current:
+          allOf:
+            - $ref: '#/components/schemas/Recommendation'
+          nullable: true
+          description: Latest recommendation for the session's area (GET only)
