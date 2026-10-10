@@ -1,0 +1,20 @@
+{
+  "error": "Authentication token missing. Please create an account and generate or renew your API Token.",
+  "found": 1,
+  "totalNumPages": 1,
+  "pageNum": 1,
+  "results": [
+    {
+      "SEARCHVAL": "SANDS EXPO AND CONVENTION CENTRE",
+      "BLK_NO": "10",
+      "ROAD_NAME": "BAYFRONT AVENUE",
+      "BUILDING": "SANDS EXPO AND CONVENTION CENTRE",
+      "ADDRESS": "10 BAYFRONT AVENUE SANDS EXPO AND CONVENTION CENTRE SINGAPORE 018956",
+      "POSTAL": "018956",
+      "X": "30791.95647611376",
+      "Y": "29426.49351353012",
+      "LATITUDE": "1.282397137717063",
+      "LONGITUDE": "103.8584053916593"
+    }
+  ]
+}

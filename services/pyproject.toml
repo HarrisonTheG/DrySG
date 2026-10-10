@@ -1,0 +1,39 @@
+[project]
+name = "drysg"
+version = "0.1.0"
+description = "DrySG backend: laundry drying score, weather ingestion and alerts"
+requires-python = ">=3.12"
+dependencies = [
+    "fastapi>=0.115",
+    "mangum>=0.19",
+    "pydantic>=2.8",
+    "boto3>=1.35",
+    "httpx>=0.27",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=8.3",
+    "ruff>=0.6",
+    "moto[dynamodb,sqs,ses]>=5.0",
+    "openapi-spec-validator>=0.7",
+    "pyyaml>=6.0",
+]
+
+[build-system]
+requires = ["setuptools>=69"]
+build-backend = "setuptools.build_meta"
+
+[tool.setuptools.packages.find]
+include = ["drysg*", "handlers*"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+pythonpath = ["."]
+
+[tool.ruff]
+line-length = 100
+target-version = "py312"
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "B", "UP", "SIM"]
