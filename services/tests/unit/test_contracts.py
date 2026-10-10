@@ -101,7 +101,7 @@ def test_models_accept_real_nea_shapes():
 
 
 def test_alert_message_example_in_handlers_doc_parses():
-    doc = (CONTRACTS / "handlers.md").read_text()
+    doc = (CONTRACTS / "handlers.md").read_text(encoding="utf-8")
     body = doc.split("```json", 1)[1].split("```", 1)[0]
     msg = AlertMessage.model_validate_json(body)
     assert msg.new_band is Band.DO_NOT_HANG

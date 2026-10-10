@@ -10,6 +10,19 @@ Runtime: **Python 3.12**. Code root: `services/`. One deployment package (or lay
 
 The ingest Lambda runs the fixed NEA fetch, writes snapshots and then calls `drysg.alerting.trigger.run_alert_trigger_from_env(snapshots, now)` in the same invocation, so the number of NEA calls stays constant no matter how many subscribers there are. Set ingest **reserved concurrency = 1** so overlapping runs can't double-alert.
 
+Implementation status: `handlers.ingest.handler` connects Stream A's collection,
+scoring and persistence to Stream B's alert trigger. Only the snapshots successfully
+saved by the current run are passed to the trigger. It queues alerts in SQS;
+`handlers.notifier.handler` sends the emails. See [data.md](data.md) for service
+entry points, failure behavior and API integration requirements.
+
+The ingest handler requires `TABLE_AREA_SNAPSHOT`, `TABLE_MONITORING_SESSION` and
+`ALERT_QUEUE_URL` before fetching weather. Its result contains `updated_areas`,
+`skipped_areas`, `missing_feeds` and `alerts` (the trigger's `areas_checked`,
+`sessions_checked`, `alerts_queued` and `failed_message_ids`). The trigger uses the
+current time after persistence to filter sessions, while alert IDs retain each
+snapshot's `updated_at` timestamp.
+
 ## Environment variables
 | Name | Used by | Example |
 |---|---|---|
@@ -22,7 +35,7 @@ The ingest Lambda runs the fixed NEA fetch, writes snapshots and then calls `dry
 | `SES_SENDER` | API (verification mail), Notifier | `alerts@drysg.example` (must be an SES verified identity) |
 | `APP_BASE_URL` | API, Notifier | CloudFront URL, used in verify and stop links |
 | `NEA_API_KEY` | Ingest, API (fallback) | Optional. NEA v2 currently works without a key; set one if rate limited |
-| `ONEMAP_TOKEN` | API | OneMap API token. Search works without one today but returns an "Authentication token missing" warning |
+| `ONEMAP_TOKEN` | API | Required for uncached OneMap searches. The client rejects authentication errors, including HTTP-200 warning responses |
 | `LOG_LEVEL` | all | `INFO` |
 
 ## SQS
@@ -58,6 +71,10 @@ The "stop monitoring" link in alert emails is `{APP_BASE_URL}/stop?session={sess
 | Notifier | `sqs:ReceiveMessage/DeleteMessage/GetQueueAttributes` on `drysg-alerts`; `dynamodb:PutItem/UpdateItem` on AlertLog; `dynamodb:UpdateItem` on MonitoringSession; `ses:SendEmail` from `SES_SENDER` |
 
 All three also need CloudWatch Logs (`AWSLambdaBasicExecutionRole`). Outbound internet for NEA and OneMap means the Lambdas should **not** be placed in a VPC (or need a NAT if they are).
+
+Stream A's `AreaSnapshotRepository.list_areas()` also requires `dynamodb:Scan` on
+AreaSnapshot for the API's area catalogue. Ingestion currently uses consistent
+`GetItem` reads and `BatchWriteItem` writes, within the permissions listed above.
 
 ## External endpoints called
 | Caller | URL |
