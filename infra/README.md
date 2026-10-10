@@ -20,3 +20,11 @@ aws s3api create-bucket --bucket drysg-tfstate-637107289229 --region ap-southeas
 
 aws s3api put-bucket-versioning --bucket drysg-tfstate-637107289229 --versioning-configuration Status=Enabled
 ```
+
+## Set AWS profile and terraform init
+
+```
+  $env:AWS_PROFILE="drysg"
+  aws sts get-caller-identity
+  terraform init
+```
