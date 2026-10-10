@@ -17,5 +17,8 @@ HTTP mock transports and Moto DynamoDB; no AWS account or OneMap token is needed
 
 Stream A provides weather ingestion, location lookup and weather/cache repositories.
 See [the data handoff](../docs/contracts/data.md) for usage, failure behavior and
-remaining API/alert integration work. Existing scoring stays in `drysg/core/scoring.py`.
+remaining API integration work. Existing scoring stays in `drysg/core/scoring.py`.
+The scheduled ingest handler now calls Stream B's alert trigger after saving
+snapshots. It requires `TABLE_AREA_SNAPSHOT`, `TABLE_MONITORING_SESSION` and
+`ALERT_QUEUE_URL`; the notifier consumes SQS separately and sends via SES.
 Terraform owns table provisioning; the repositories never create real tables.

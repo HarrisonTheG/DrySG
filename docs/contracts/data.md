@@ -14,8 +14,13 @@ the user/session API are unchanged.
   continue to live in Isaac's `drysg.core.models`.
 - Stream B continues to own scoring and alert decisions. `IngestionService.run()`
   returns the snapshots saved by the run, including their previous scores/bands.
-  Stream B can consume this result in the same handler invocation. This change
-  does not implement or send alerts, nor touch User/MonitoringSession/AlertLog.
+  The scheduled handler passes all of these snapshots to Stream B's
+  `run_alert_trigger_from_env()` after successful persistence. Decisions compare
+  each session's baseline with the new snapshot, not with `prev_score`/`prev_band`.
+  Do not pre-filter snapshots by changes since the last ingest run: an unchanged
+  area score can still require an alert for a particular session.
+  `IngestionService` itself remains free of alert dispatch, so API callers can
+  reuse it for a cold-start refresh without running scheduled alert decisions.
 
 ## Decisions for this implementation
 
@@ -95,10 +100,21 @@ Suggested exception mapping in the API (using the existing `Error` schema):
 The OneMap token is configuration owned by the deployment. There is no automatic
 token renewal in this service. See the [official registration guide](https://www.onemap.gov.sg/apidocs/register).
 
+When creating a monitoring session, the API must set `baseline_score`,
+`baseline_band` and `baseline_veto` from the chosen current snapshot. Use
+`drysg.db.items.session_to_item()` / `session_from_item()` for the session's
+database shape, including epoch `expires_at`. The notifier owns subsequent
+baseline updates. Session CRUD and the frontend `/stop` route remain integration
+work for their respective owners.
+
 ## Scheduled handler and infrastructure
 
 - Deploy `handlers.ingest.handler` from `services/` with `TABLE_AREA_SNAPSHOT`,
-  optional `NEA_API_KEY`, and the Lambda region. Tables must already exist.
+  `TABLE_MONITORING_SESSION`, `ALERT_QUEUE_URL`, optional `NEA_API_KEY`, and the
+  Lambda region. Required configuration is checked before fetching or writing.
+  Tables, the `area-status-index` and queue must already exist. The ingest role
+  needs `dynamodb:Query` on that index and `sqs:SendMessage` on the queue, in
+  addition to snapshot permissions.
 - Ingestion reads each prior snapshot with a consistent `GetItem` and writes using
   DynamoDB `BatchWriteItem`. This version does not use `BatchGetItem`.
 - API catalogue lookup additionally requires `dynamodb:Scan` on AreaSnapshot.
@@ -106,20 +122,33 @@ token renewal in this service. See the [official registration guide](https://www
 - Keep reserved concurrency at 1 for scheduled ingestion. Batch writes are not
   atomic across areas: failed invocations can leave a partially refreshed table.
   A retry is another refresh; this service does not provide exactly-once alert
-  transitions. Stream B must account for persistence/retry behavior when wiring
-  alert delivery, including first snapshots whose previous score/band are `None`.
-- The current handler returns counts and missing-feed/skipped-area diagnostics.
+  transitions. A failed refresh does not call the trigger. A raised trigger error
+  fails the invocation even though snapshots have already been saved. The next
+  invocation evaluates session baselines again, including when area scores hold.
+- The handler returns counts and missing-feed/skipped-area diagnostics plus
+  `alerts`: `areas_checked`, `sessions_checked`, `alerts_queued` and
+  `failed_message_ids`. Per-entry SQS failures follow Isaac's existing policy:
+  retry once, then report failures without failing the ingestion invocation;
+  the next scheduled run re-evaluates unchanged session baselines.
   `missing_feeds` describes failed fetches, not every stale or invalid observation.
-  The service's `result.snapshots` supplies the data for the future alert trigger.
-- No cloud resources, email, alert queues, API routes or monitoring sessions are
-  created by this implementation. All new integration tests use Moto and mock HTTP.
+- The trigger receives only fresh snapshots returned by this run, never old
+  snapshots retained for skipped areas. Its current clock is sampled after writes,
+  so sessions that expire during collection are excluded.
+- The notifier retains its documented crash window after claiming an alert;
+  this wiring does not change deduplication or baseline-update behavior.
+- Infrastructure provisioning, API routes and session creation are separate work.
+  Tests use Moto for DynamoDB/SQS/SES and mock HTTP; no real resources or emails
+  are created or sent by verification.
 
 ## Local verification
 
 See [services/README.md](../../services/README.md) for the isolated environment and
 test commands. Tests cover fixture parsing, partial failures, invalid/future/stale
 data, cache hits, exact postal matching, DynamoDB serialization and pagination,
-previous scores, failed refresh retention, and scheduled-handler wiring.
+previous scores, failed refresh retention, and the complete scheduled ingestion
+to SQS to notifier/SES path. They also check that an unchanged area score can
+alert against a session baseline, that skipped areas do not alert from old data,
+and that failed writes/configuration do not queue messages.
 
 ## Review focus
 

@@ -246,6 +246,7 @@ def test_corrupt_postal_document_is_not_returned(database):
 
 
 def test_ingest_handler_wires_real_service_and_closes_http(database, monkeypatch):
+    from drysg.alerting.trigger import TriggerStats
     from drysg.data import ingestion
     from handlers import ingest
 
@@ -253,10 +254,14 @@ def test_ingest_handler_wires_real_service_and_closes_http(database, monkeypatch
     clock.now.return_value = NOW
     monkeypatch.setattr(ingestion, "datetime", clock)
     monkeypatch.setenv("TABLE_AREA_SNAPSHOT", "snapshots")
+    monkeypatch.setenv("TABLE_MONITORING_SESSION", "sessions")
+    monkeypatch.setenv("ALERT_QUEUE_URL", "https://sqs.example/alerts")
     monkeypatch.setenv("NEA_API_KEY", "test-key")
     monkeypatch.setattr(ingest.boto3, "resource", lambda name, **kw: database)
     http = httpx.Client(transport=httpx.MockTransport(fixture_response))
     monkeypatch.setattr(ingest.httpx, "Client", lambda **kw: http)
+    trigger = Mock(return_value=TriggerStats())
+    monkeypatch.setattr(ingest, "run_alert_trigger_from_env", trigger)
     result = ingest.handler({"source": "aws.events"}, None)
     assert result["updated_areas"] == len(
         AreaSnapshotRepository(database, "snapshots").list_areas()
@@ -264,6 +269,12 @@ def test_ingest_handler_wires_real_service_and_closes_http(database, monkeypatch
     assert result["updated_areas"] > 0
     assert result["missing_feeds"] == []
     assert http.is_closed
+    trigger.assert_called_once()
+    forwarded, alert_time = trigger.call_args.args
+    assert len(forwarded) == result["updated_areas"]
+    assert alert_time.tzinfo is not None
+    repo = AreaSnapshotRepository(database, "snapshots")
+    assert all(repo.get(snapshot.area) == snapshot for snapshot in forwarded)
 
 
 def test_ingest_handler_requires_table_configuration(monkeypatch):

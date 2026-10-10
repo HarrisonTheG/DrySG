@@ -8,12 +8,20 @@ Runtime: **Python 3.12**. Code root: `services/`. One deployment package (or lay
 | Ingest | `handlers.ingest.handler` | EventBridge schedule `rate(5 minutes)` | 60 s / 512 MB |
 | Notifier | `handlers.notifier.handler` | SQS `drysg-alerts` (batch size 10, `ReportBatchItemFailures` enabled) | 30 s / 256 MB |
 
-The ingest Lambda runs the fixed NEA fetch, writes snapshots and then runs the alert trigger in the same invocation, so the number of NEA calls stays constant no matter how many subscribers there are. Set ingest **reserved concurrency = 1** so overlapping runs can't double-alert.
+The ingest Lambda runs the fixed NEA fetch, writes snapshots and then calls `drysg.alerting.trigger.run_alert_trigger_from_env(snapshots, now)` in the same invocation, so the number of NEA calls stays constant no matter how many subscribers there are. Set ingest **reserved concurrency = 1** so overlapping runs can't double-alert.
 
-Implementation status: Stream A currently supplies the collection/scoring/persistence
-portion of `handlers.ingest.handler`. The alert trigger remains Stream B's integration
-work; the current handler does not send alerts. See [data.md](data.md) for service
-entry points and API integration requirements.
+Implementation status: `handlers.ingest.handler` connects Stream A's collection,
+scoring and persistence to Stream B's alert trigger. Only the snapshots successfully
+saved by the current run are passed to the trigger. It queues alerts in SQS;
+`handlers.notifier.handler` sends the emails. See [data.md](data.md) for service
+entry points, failure behavior and API integration requirements.
+
+The ingest handler requires `TABLE_AREA_SNAPSHOT`, `TABLE_MONITORING_SESSION` and
+`ALERT_QUEUE_URL` before fetching weather. Its result contains `updated_areas`,
+`skipped_areas`, `missing_feeds` and `alerts` (the trigger's `areas_checked`,
+`sessions_checked`, `alerts_queued` and `failed_message_ids`). The trigger uses the
+current time after persistence to filter sessions, while alert IDs retain each
+snapshot's `updated_at` timestamp.
 
 ## Environment variables
 | Name | Used by | Example |
@@ -44,19 +52,23 @@ entry points and API integration requirements.
   "prev_band": "Hang Now",
   "new_score": 32,
   "new_band": "Do Not Hang",
+  "new_veto": true,
   "reason": "Rain detected at nearby station",
   "snapshot_ts": "2026-10-04T14:05:00+08:00"
 }
 ```
 
-Delivery is at-least-once. The notifier dedupes on `alert_id` with a conditional put to `AlertLog`.
+Delivery is at-least-once. The notifier dedupes on `alert_id` with a conditional put to `AlertLog`. If SES fails, the notifier reports the message in `batchItemFailures`, so only that message is retried.
+
+## Alert email links
+The "stop monitoring" link in alert emails is `{APP_BASE_URL}/stop?session={session_id}`. **The frontend needs a `/stop` route** that calls `DELETE /monitoring/{session_id}`.
 
 ## IAM (least privilege per function)
 | Lambda | Permissions |
 |---|---|
 | API | `dynamodb:GetItem/PutItem/UpdateItem/Query` on User, MonitoringSession (+ `email-index`), PostalCache; `GetItem/PutItem` on AreaSnapshot (fallback write); `ses:SendEmail` from `SES_SENDER` |
 | Ingest | `dynamodb:BatchGetItem/BatchWriteItem/GetItem/PutItem` on AreaSnapshot; `dynamodb:Query` on MonitoringSession `area-status-index`; `sqs:SendMessage` on `drysg-alerts` |
-| Notifier | `sqs:ReceiveMessage/DeleteMessage/GetQueueAttributes` on `drysg-alerts`; `dynamodb:PutItem` on AlertLog; `dynamodb:UpdateItem` on MonitoringSession; `ses:SendEmail` from `SES_SENDER` |
+| Notifier | `sqs:ReceiveMessage/DeleteMessage/GetQueueAttributes` on `drysg-alerts`; `dynamodb:PutItem/UpdateItem` on AlertLog; `dynamodb:UpdateItem` on MonitoringSession; `ses:SendEmail` from `SES_SENDER` |
 
 All three also need CloudWatch Logs (`AWSLambdaBasicExecutionRole`). Outbound internet for NEA and OneMap means the Lambdas should **not** be placed in a VPC (or need a NAT if they are).
 

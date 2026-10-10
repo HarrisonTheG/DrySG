@@ -95,6 +95,35 @@ class AreaSnapshot(BaseModel):
     updated_at: datetime
 
 
+class SessionStatus(StrEnum):
+    ACTIVE = "active"
+    STOPPED = "stopped"
+    EXPIRED = "expired"
+
+
+class MonitoringSession(BaseModel):
+    """A user's monitoring session (DynamoDB MonitoringSession table).
+
+    `baseline_*` is the state the user was last told about: set by the API at
+    session start, and moved to the new state by the notifier after each alert.
+    Alerts fire when conditions get worse than the baseline.
+    """
+
+    session_id: str
+    email: str
+    postal_code: str
+    area: str
+    status: SessionStatus
+    started_at: datetime
+    expires_at: datetime
+    stopped_at: datetime | None = None
+    baseline_score: int
+    baseline_band: Band
+    baseline_veto: bool = False
+    last_alert_at: datetime | None = None
+    last_alert_band: Band | None = None
+
+
 class AlertMessage(BaseModel):
     """SQS message body sent from the alert trigger to the notifier Lambda."""
 
@@ -106,5 +135,6 @@ class AlertMessage(BaseModel):
     prev_band: Band
     new_score: int
     new_band: Band
+    new_veto: bool = False
     reason: str = Field(description="Human-readable cause, e.g. 'Rain detected nearby'")
     snapshot_ts: datetime

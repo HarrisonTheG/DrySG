@@ -51,9 +51,16 @@ No TTL. Postal codes rarely move, and the nearest area can be recomputed if area
 | `area` | S | Copied from PostalCache at start |
 | `status` | S | `active` \| `stopped` \| `expired` |
 | `started_at`, `stopped_at` | S | ISO timestamps |
+| `baseline_score` | N | Score the user was last told about. **The API sets it from the area snapshot at session start**, and the notifier updates it after each alert |
+| `baseline_band` | S | Band matching `baseline_score` |
+| `baseline_veto` | BOOL | Whether the baseline state was a rain veto |
 | `last_alert_at` | S | ISO timestamp, used for cooldown |
-| `last_alert_band` | S | Band at the last alert, so a veto can bypass the cooldown |
+| `last_alert_band` | S | Band at the last alert, so an escalation to Do Not Hang can bypass the cooldown |
 | `expires_at` | **N** | Epoch seconds, **TTL attribute** (proposed: started_at + 12 h) |
+
+The item shape is `drysg.db.items.session_to_item(MonitoringSession)` / `session_from_item`.
+
+Alerts compare new conditions with the session's **baseline**, not with the previous 5-minute snapshot. This catches slow declines and prevents repeat alerts when a score hovers around a threshold. The rules are in `drysg/core/alerts.py`.
 
 **GSI `area-status-index`**: PK `area`, SK `status`, projection ALL. The alert trigger queries `area = :a AND status = 'active'` for each deteriorated area.
 
@@ -67,8 +74,10 @@ An idempotency and audit trail for alerts. It is also used in evaluation to coun
 | Attribute | Type | Notes |
 |---|---|---|
 | `session_id` (PK) | S | |
-| `alert_id` (SK) | S | `{session_id}#{snapshot_ts}`. The notifier does a conditional put (`attribute_not_exists`) to dedupe |
+| `alert_id` (SK) | S | `{session_id}#{snapshot_ts}`. The notifier claims it with a conditional put (`attribute_not_exists(alert_id) OR status = failed`) to dedupe |
+| `status` | S | `claimed` → `sent` \| `failed` \| `skipped_inactive` |
 | `area` | S | |
+| `snapshot_ts`, `claimed_at` | S | ISO timestamps |
 | `prev_band`, `new_band` | S | |
 | `prev_score`, `new_score` | N | |
 | `reason` | S | |
@@ -81,7 +90,7 @@ An idempotency and audit trail for alerts. It is also used in evaluation to coun
 |---|---|---|
 | Ingest | BatchGet all snapshots (for prev score), BatchWrite all snapshots | AreaSnapshot |
 | Alert trigger | Query active sessions by area | MonitoringSession / `area-status-index` |
-| Notifier | Conditional Put alert, Update session `last_alert_at` | AlertLog, MonitoringSession |
+| Notifier | Conditional Put + Update alert status; conditional Update of the session baseline (only if still active) | AlertLog, MonitoringSession |
 | API `/recommendation` | Get postal → Get snapshot | PostalCache, AreaSnapshot |
 | API `/users*` | Get/Put/Update user | User |
-| API `/monitoring*` | Put/Get/Update session, Query by email | MonitoringSession, `email-index` |
+| API `/monitoring*` | Put/Get/Update session (set the baseline from the snapshot at start), Query by email | MonitoringSession, `email-index` |
