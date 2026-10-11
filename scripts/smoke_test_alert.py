@@ -7,7 +7,7 @@ A "sent" result means SES accepted the email; check the inbox (and junk) of --em
 Usage, from the repo root (needs boto3, e.g. the services/.venv):
     python scripts/smoke_test_alert.py --email you@example.com
 
-In SES sandbox, --email must be a verified identity.
+--email is the recipient, not the sender. In SES sandbox both must be verified identities.
 """
 
 import argparse
@@ -24,7 +24,7 @@ TIMEOUT_SECONDS = 60
 
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
-    parser.add_argument("--email", required=True, help="Recipient (must be verified in sandbox)")
+    parser.add_argument("--email", required=True, help="Recipient of the test alert (must be verified in sandbox)")
     parser.add_argument("--env", default="dev", help="Environment prefix (default: dev)")
     parser.add_argument("--profile", default="drysg", help="AWS CLI profile (default: drysg)")
     parser.add_argument("--area", default="Hougang", help="Area named in the test email")

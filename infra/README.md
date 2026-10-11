@@ -97,11 +97,13 @@ aws logs tail /aws/lambda/drysg-dev-ingest --since 15m
 ### Alerts (queue → notifier → email)
 `scripts/smoke_test_alert.py` creates a temporary monitoring session, queues a fake alert, waits for the notifier, and then deletes the test data:
 ```
-services\.venv\Scripts\python.exe scripts\smoke_test_alert.py --email you@example.com
+services\.venv\Scripts\python.exe scripts\smoke_test_alert.py --email <your verified email>
 ```
 (Set up `services/.venv` as described in [`services/README.md`](../services/README.md). On macOS/Linux use `services/.venv/bin/python`.)
 
-A `PASS` means SES accepted the email. Check the inbox **and junk folder**. In SES sandbox the recipient must be verified (see below). For a `FAIL`:
+`--email` is who **receives** the test alert. It's not the sender (`ses_sender`). In sandbox, **both** must be verified in SES, so the easiest choice is the `ses_sender` address itself. To receive at a different address, verify that address first (see [Email (SES) sandbox](#email-ses-sandbox)).
+
+A `PASS` means SES accepted the email. Check the inbox **and junk folder**. For a `FAIL`:
 ```
 aws logs tail /aws/lambda/drysg-dev-notifier --since 10m
 ```
@@ -113,7 +115,8 @@ aws sqs get-queue-attributes --queue-url (terraform output -raw alert_dlq_url) -
 
 ## Email (SES) sandbox
 SES starts in **sandbox mode**:
-- It only delivers to **verified** addresses, at about 200 emails/day.
+- It only delivers to **verified** addresses, at about 200 emails/day. Sandbox checks **both** the sender and every recipient.
+- If the notifier log shows `MessageRejected: Email address is not verified`, the address it names isn't verified. It's usually the recipient.
 - To receive test alerts, verify your address: AWS Console → **SES → Identities → Create identity → Email address**, then click the link AWS emails you (check junk).
 - Before real users sign up, request production access in the SES console.
 
