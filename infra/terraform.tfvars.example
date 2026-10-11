@@ -1,0 +1,2 @@
+# Copy to terraform.tfvars (gitignored) and fill in.
+ses_sender = "you@example.com"
