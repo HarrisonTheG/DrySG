@@ -27,7 +27,7 @@ paths:
         no snapshot exists for the area (cold start fallback).
       operationId: getRecommendation
       parameters:
-        - name: postal
+        - name: postalCode
           in: query
           required: true
           schema:
@@ -91,13 +91,13 @@ paths:
               schema: { $ref: '#/components/schemas/UserStatus' }
         '400': { $ref: '#/components/responses/BadRequest' }
 
-  /monitoring:
+  /laundry-sessions:
     post:
       summary: Start monitoring (laundry is now hanging outside)
       description: |
         Requires a verified email. Only one active session per email; starting a new
         one stops the previous. Sessions auto-expire after `expires_at`.
-      operationId: startMonitoring
+      operationId: startLaundrySession
       requestBody:
         required: true
         content:
@@ -122,16 +122,16 @@ paths:
               schema: { $ref: '#/components/schemas/Error' }
         '404': { $ref: '#/components/responses/NotFound' }
 
-  /monitoring/{session_id}:
+  /laundry-sessions/{id}:
     parameters:
-      - name: session_id
+      - name: id
         in: path
         required: true
-        description: UUID4. Acts as the bearer secret for the session (also used in email stop links).
+        description: The session's `session_id` (UUID4). Acts as the bearer secret for the session (also used in email stop links).
         schema: { type: string, format: uuid }
     get:
       summary: Session status with the latest recommendation for its area
-      operationId: getMonitoring
+      operationId: getLaundrySession
       responses:
         '200':
           description: Session
@@ -142,7 +142,7 @@ paths:
     delete:
       summary: Stop monitoring (laundry brought in)
       description: Idempotent. Stopping an already stopped/expired session returns 200.
-      operationId: stopMonitoring
+      operationId: stopLaundrySession
       responses:
         '200':
           description: Session stopped
