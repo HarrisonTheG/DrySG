@@ -61,7 +61,7 @@ snapshot's `updated_at` timestamp.
 Delivery is at-least-once. The notifier dedupes on `alert_id` with a conditional put to `AlertLog`. If SES fails, the notifier reports the message in `batchItemFailures`, so only that message is retried.
 
 ## Alert email links
-The "stop monitoring" link in alert emails is `{APP_BASE_URL}/stop?session={session_id}`. **The frontend needs a `/stop` route** that calls `DELETE /monitoring/{session_id}`.
+The "stop monitoring" link in alert emails is `{APP_BASE_URL}/stop?session={session_id}`. **The frontend needs a `/stop` route** that calls `DELETE /laundry-sessions/{session_id}`.
 
 ## IAM (least privilege per function)
 | Lambda | Permissions |

@@ -38,10 +38,10 @@ def test_openapi_spec_is_valid(spec):
 @pytest.mark.parametrize(
     ("mock", "schema"),
     [
-        ("recommendation_hang_now.json", "Recommendation"),
-        ("recommendation_wait_psi_caution.json", "Recommendation"),
-        ("recommendation_do_not_hang_veto.json", "Recommendation"),
-        ("monitoring_session_active.json", "MonitoringSession"),
+        ("recommendation_hang_now.json", "DryingRecommendation"),
+        ("recommendation_wait_psi_caution.json", "DryingRecommendation"),
+        ("recommendation_do_not_hang_veto.json", "DryingRecommendation"),
+        ("laundry_session_active.json", "LaundrySession"),
         ("user_status.json", "UserStatus"),
         ("error_postal_not_found.json", "Error"),
     ],
