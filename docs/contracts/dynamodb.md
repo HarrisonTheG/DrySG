@@ -93,4 +93,4 @@ An idempotency and audit trail for alerts. It is also used in evaluation to coun
 | Notifier | Conditional Put + Update alert status; conditional Update of the session baseline (only if still active) | AlertLog, MonitoringSession |
 | API `/recommendation` | Get postal → Get snapshot | PostalCache, AreaSnapshot |
 | API `/users*` | Get/Put/Update user | User |
-| API `/monitoring*` | Put/Get/Update session (set the baseline from the snapshot at start), Query by email | MonitoringSession, `email-index` |
+| API `/laundry-sessions*` | Put/Get/Update session (set the baseline from the snapshot at start), Query by email | MonitoringSession, `email-index` |

@@ -71,7 +71,7 @@ def to_recommendation(snapshot: AreaSnapshot, postal_code: str) -> DryingRecomme
             rainfallMm=_value(c.rainfall_mm),
             temperatureC=c.temp_c.value,
             humidityPercent=c.humidity_pct.value,
-            windSpeedMs=round(c.wind_knots.value * KNOTS_TO_MS, 2),
+            windSpeedMs=round(c.wind_knots.value * KNOTS_TO_MS, 1),
             forecast=None if c.forecast is None else c.forecast.text,
             psi=_value(c.psi),
             psiBand=None if r.psi_caution is None else r.psi_caution.value,

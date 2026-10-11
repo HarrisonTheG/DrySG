@@ -131,7 +131,7 @@ GET /recommendation?postalCode=570150
     "rainfallMm": 0.0,
     "temperatureC": 33.0,
     "humidityPercent": 55.0,
-    "windSpeedMs": 4.12,
+    "windSpeedMs": 4.1,
     "forecast": "Fair (Day)",
     "psi": 48.0,
     "psiBand": "Good"
@@ -160,7 +160,7 @@ station. Note the score is unchanged (99) while the recommendation is overridden
   "percentileDescription": null,
   "updatedAt": "2026-10-04T14:00:00+08:00",
   "conditions": { "rainfallMm": 0.6, "temperatureC": 33.0, "humidityPercent": 55.0,
-                  "windSpeedMs": 4.12, "forecast": "Fair (Day)", "psi": 48.0, "psiBand": "Good" },
+                  "windSpeedMs": 4.1, "forecast": "Fair (Day)", "psi": 48.0, "psiBand": "Good" },
   "rainVeto": true,
   "airQualityWarning": false,
   "stationSources": { "rainfall": "S07", "humidity": "S109", "temperature": "S24", "wind": "S81" }

@@ -46,7 +46,6 @@ def test_openapi_spec_is_valid(spec):
         ("recommendation_wait_psi_caution.json", "DryingRecommendation"),
         ("recommendation_do_not_hang_veto.json", "DryingRecommendation"),
         ("laundry_session_active.json", "LaundrySession"),
-        ("laundry_session_detail.json", "LaundrySessionDetail"),
         ("user_status.json", "UserStatus"),
         ("error_postal_not_found.json", "Error"),
     ],

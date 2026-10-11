@@ -169,7 +169,7 @@ def test_conditions_and_units(client):
     conditions = get(client).json()["conditions"]
     assert conditions["temperatureC"] == 31.0
     assert conditions["humidityPercent"] == 70.0
-    assert conditions["windSpeedMs"] == pytest.approx(6 * 0.514444, abs=0.01)  # from knots
+    assert conditions["windSpeedMs"] == 3.1  # 6 kt * 0.514444 = 3.09 m/s, one decimal
     assert conditions["rainfallMm"] == 0.0
     assert conditions["forecast"] == "Fair (Day)"
     assert (conditions["psi"], conditions["psiBand"]) == (48.0, "Good")

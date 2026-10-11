@@ -15,7 +15,7 @@ All JSON is `camelCase`. All timestamps are ISO 8601 with the Singapore offset (
 |---|---|---|---|
 | GET | `/recommendation?postalCode=120123` | Latest cached recommendation for a postal code | `200` `DryingRecommendation` |
 | POST | `/laundry-sessions` | Start monitoring a postal code for an email | `201` `LaundrySession` |
-| GET | `/laundry-sessions/{id}` | Read monitoring state | `200` `LaundrySessionDetail` |
+| GET | `/laundry-sessions/{id}` | Read monitoring state | `200` `LaundrySession` |
 | DELETE | `/laundry-sessions/{id}` | Stop monitoring | `200` `LaundrySession` |
 
 ### GET /recommendation
@@ -37,13 +37,9 @@ All JSON is `camelCase`. All timestamps are ISO 8601 with the Singapore offset (
 - Sessions expire **12 hours** after `startedAt`.
 
 ### GET /laundry-sessions/{id}
-Returns `LaundrySession` plus the area's latest recommendation (omitted if unavailable):
-```ts
-interface LaundrySessionDetail extends LaundrySession {
-  recommendation?: DryingRecommendation
-}
-```
-`active` is `false` once stopped or past `expiresAt`.
+Returns the `LaundrySession`. `active` is `false` once stopped or past `expiresAt`. The current
+score is not included: the frontend fetches it separately with `GET /recommendation` (the team's
+agreed design).
 
 ### DELETE /laundry-sessions/{id}
 Idempotent. Stopping an already stopped or expired session returns `200` with `active: false`.
@@ -83,7 +79,7 @@ export interface WeatherConditions {
   rainfallMm: number        // 5-minute total at the nearest rainfall station
   temperatureC: number
   humidityPercent: number
-  windSpeedMs: number       // metres per second (NEA reports knots; converted by the backend)
+  windSpeedMs: number       // metres per second, 1 decimal (NEA reports knots; converted by the backend)
   forecast: string          // NEA 2-hour forecast text, e.g. "Partly Cloudy (Day)"
   psi: number               // 24-hour PSI of the nearest PSI region
   psiBand: "Good" | "Moderate" | "Unhealthy" | "Very Unhealthy" | "Hazardous"

@@ -82,7 +82,7 @@ with httpx.Client() as http:
 ```
 
 `snapshot` may be `None`, or old after failed refreshes. The API must check its age,
-build the existing `Recommendation` response, and format timestamps with the
+build the `DryingRecommendation` response (camelCase), and format timestamps with the
 Singapore offset (`+08:00`) required by OpenAPI. Repository records retain the
 actual timezone-aware timestamps; default computation/cache clocks use UTC.
 `list_areas()` scans only label fields with pagination; an API instance may reuse
