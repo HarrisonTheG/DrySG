@@ -8,3 +8,15 @@ output "table_names" {
     alert_log          = aws_dynamodb_table.alert_log.name
   }
 }
+
+output "alert_queue_url" {
+  value = aws_sqs_queue.alerts.url
+}
+
+output "alert_dlq_url" {
+  value = aws_sqs_queue.alerts_dlq.url
+}
+
+output "ingest_function_name" {
+  value = aws_lambda_function.ingest.function_name
+}
