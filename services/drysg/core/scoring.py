@@ -3,69 +3,37 @@
 Pure functions only. The on-demand API, the background ingest/alert path and the
 on-prem comparison all call `compute_score`, so they cannot drift apart.
 
-All tunables are module-level constants. Curve values are initial proposals
-pending team review (see progress.md, "Open Questions").
+Rain and air quality are separate from the score:
+  * Rain is a hard veto. Observed or forecast rain forces "Do Not Hang".
+  * PSI never changes the recommendation; it only raises an air-quality warning.
+Temperature, humidity and wind are combined into one physical quantity, the Penman
+aerodynamic drying potential (DP), instead of hand-picked weights. The 0-100 score is
+the percentile of the current DP within historical Singapore conditions.
+
+References: Penman (1948); Bayliss et al. (2011), "Do you want to hang out?";
+Huang & Chen (2010), Textile Research Journal.
 """
 
+import math
 import re
+from bisect import bisect_right
 
-from drysg.core.models import Band, Conditions, PsiLevel, ScoreResult, SubScores
-
-# --- Weights ------------------------------------------------------------------
-# Reweighted from the preliminary report's 50/25/10/15 (2026-10-04): with rain at
-# 50%, "not raining" alone gave 50 points, so humid nights scored Hang Now.
-# Rain is still a hard veto; humidity drives drying speed in Singapore.
-WEIGHT_RAIN = 0.30
-WEIGHT_HUMIDITY = 0.40
-WEIGHT_WIND = 0.10
-WEIGHT_TEMPERATURE = 0.20
+from drysg.core.dp_percentiles import DP_PERCENTILES, DP_PERCENTILES_YEAR
+from drysg.core.models import Band, Conditions, PsiLevel, ScoreResult
 
 # --- Bands --------------------------------------------------------------------
 HANG_NOW_MIN = 70
 WAIT_MIN = 50
-
-# A veto forces "Do Not Hang", so the score is capped just below WAIT_MIN.
-VETO_SCORE_CAP = WAIT_MIN - 1
-# With no rain information at all, never say "Hang Now".
-MISSING_RAIN_SCORE_CAP = HANG_NOW_MIN - 1
 
 # --- Rain ---------------------------------------------------------------------
 # Any 5-minute rainfall total above this at the nearest station is a veto.
 RAIN_VETO_MM = 0.0
 # Forecast keywords that mean precipitation within the 2-hour window -> veto.
 RAIN_FORECAST_KEYWORDS = ("rain", "shower", "thunder", "drizzle")
-# Rain sub-score by normalised NEA forecast text (suffixes like "(Day)" removed).
-FORECAST_SCORES = {
-    "fair": 100,
-    "fair and warm": 100,
-    "partly cloudy": 85,
-    "windy": 80,
-    "slightly hazy": 70,
-    "cloudy": 60,
-    "hazy": 60,
-    "mist": 40,
-    "fog": 30,
-}
-UNKNOWN_FORECAST_SCORE = 50
-# Dry station reading but no forecast available: dry now, unknown outlook.
-DRY_NO_FORECAST_SCORE = 70
 
-# --- Humidity (%): linear, 100 at or below BEST, 0 at or above WORST ----------
-HUMIDITY_BEST = 60.0
-HUMIDITY_WORST = 95.0
-
-# --- Temperature (deg C): linear, 0 at or below MIN, 100 at or above MAX ------
-TEMP_MIN = 24.0
-TEMP_MAX = 32.0
-
-# --- Wind (knots): piecewise linear ------------------------------------------
-# Still air dries slowly; a moderate breeze is ideal; strong gusts blow laundry away.
-WIND_CALM_SCORE = 30.0  # at 0 kt
-WIND_IDEAL_LOW = 5.0  # reaches 100
-WIND_IDEAL_HIGH = 15.0  # still 100
-WIND_STRONG = 25.0  # drops to WIND_STRONG_SCORE
-WIND_STRONG_SCORE = 40.0
-WIND_GALE = 35.0  # 0 at or above
+# --- Drying potential ---------------------------------------------------------
+KNOTS_TO_MS = 0.514444
+WIND_COEFFICIENT = 0.536  # Penman aerodynamic wind function: 1 + 0.536 * u (u in m/s)
 
 # --- PSI descriptor upper bounds (NEA) ----------------------------------------
 PSI_BANDS = (
@@ -74,19 +42,15 @@ PSI_BANDS = (
     (200, PsiLevel.UNHEALTHY),
     (300, PsiLevel.VERY_UNHEALTHY),
 )
+# Air-quality warning applies above this PSI.
+PSI_WARNING_ABOVE = 100
 
 
 class InsufficientDataError(ValueError):
-    """Raised when no scoring input is available at all."""
+    """Raised when the inputs needed for a score or a rain decision are missing."""
 
 
-def _clamp(x: float, lo: float = 0.0, hi: float = 100.0) -> float:
-    return max(lo, min(hi, x))
-
-
-def _lerp(x: float, x0: float, y0: float, x1: float, y1: float) -> float:
-    """Linear interpolation of y at x between (x0, y0) and (x1, y1)."""
-    return y0 + (y1 - y0) * (x - x0) / (x1 - x0)
+# --- Forecast / rain veto -----------------------------------------------------
 
 
 def _strip_suffix(text: str) -> str:
@@ -104,49 +68,50 @@ def is_rain_forecast(text: str) -> bool:
     return any(k in norm for k in RAIN_FORECAST_KEYWORDS)
 
 
-def forecast_subscore(text: str) -> float:
-    if is_rain_forecast(text):
-        return 0.0
-    return float(FORECAST_SCORES.get(normalise_forecast(text), UNKNOWN_FORECAST_SCORE))
+def rain_veto_reason(rainfall_mm: float | None, forecast_text: str | None) -> str | None:
+    """Returns why laundry must not be hung, or None when there is no rain veto.
 
-
-def rain_subscore(
-    rainfall_mm: float | None, forecast_text: str | None
-) -> tuple[float | None, str | None]:
-    """Returns (sub-score, veto reason). The veto reason is None when there is no veto.
-
-    Observed rain and rain in the forecast both veto. Otherwise the forecast sets the
-    score. With only a dry observation and no forecast, a cautious fallback is used.
+    Observed rain and rain in the 2-hour forecast both veto.
     """
     if rainfall_mm is not None and rainfall_mm > RAIN_VETO_MM:
-        return 0.0, f"Rain detected at nearby station ({rainfall_mm:g} mm in last 5 min)"
-    if forecast_text is not None:
-        if is_rain_forecast(forecast_text):
-            return 0.0, f"{_strip_suffix(forecast_text)} forecast for the next 2 hours"
-        return forecast_subscore(forecast_text), None
-    if rainfall_mm is not None:
-        return float(DRY_NO_FORECAST_SCORE), None
-    return None, None
+        return f"Rain detected at nearby station ({rainfall_mm:g} mm in last 5 min)"
+    if forecast_text is not None and is_rain_forecast(forecast_text):
+        return f"{_strip_suffix(forecast_text)} forecast for the next 2 hours"
+    return None
 
 
-def humidity_subscore(pct: float) -> float:
-    return _clamp(_lerp(pct, HUMIDITY_BEST, 100.0, HUMIDITY_WORST, 0.0))
+# --- Drying potential and score -----------------------------------------------
 
 
-def temperature_subscore(celsius: float) -> float:
-    return _clamp(_lerp(celsius, TEMP_MIN, 0.0, TEMP_MAX, 100.0))
+def saturation_vapour_pressure(temp_c: float) -> float:
+    """Es(T) in kPa (Tetens form)."""
+    return 0.6108 * math.exp(17.27 * temp_c / (temp_c + 237.3))
 
 
-def wind_subscore(knots: float) -> float:
-    if knots <= 0:
-        return WIND_CALM_SCORE
-    if knots < WIND_IDEAL_LOW:
-        return _lerp(knots, 0.0, WIND_CALM_SCORE, WIND_IDEAL_LOW, 100.0)
-    if knots <= WIND_IDEAL_HIGH:
-        return 100.0
-    if knots <= WIND_STRONG:
-        return _lerp(knots, WIND_IDEAL_HIGH, 100.0, WIND_STRONG, WIND_STRONG_SCORE)
-    return _clamp(_lerp(knots, WIND_STRONG, WIND_STRONG_SCORE, WIND_GALE, 0.0))
+def vapour_pressure_deficit(temp_c: float, humidity_pct: float) -> float:
+    """VPD in kPa. Humidity is clamped to 0-100."""
+    rh = max(0.0, min(100.0, humidity_pct))
+    return saturation_vapour_pressure(temp_c) * (1 - rh / 100)
+
+
+def drying_potential(temp_c: float, humidity_pct: float, wind_ms: float) -> float:
+    """DP = (1 + 0.536 u) * VPD, with wind speed u in m/s. Higher dries faster."""
+    return (1 + WIND_COEFFICIENT * max(0.0, wind_ms)) * vapour_pressure_deficit(
+        temp_c, humidity_pct
+    )
+
+
+def dp_to_score(dp: float, table: tuple[float, ...] = DP_PERCENTILES) -> int:
+    """Percentile position of `dp` in the historical table, as an integer 0-100.
+
+    `table[k]` is the k-th percentile, so the score is the highest k with
+    table[k] <= dp (0 when below the minimum, 100 at or above the maximum).
+    """
+    return max(0, min(100, bisect_right(table, dp) - 1))
+
+
+def percentile_description(score: int) -> str:
+    return f"Drier than {score}% of Singapore dry-weather readings in {DP_PERCENTILES_YEAR}"
 
 
 def psi_caution(psi: float | None) -> PsiLevel | None:
@@ -173,49 +138,37 @@ def _value(reading) -> float | None:
 def compute_score(conditions: Conditions) -> ScoreResult:
     """Score an area's conditions.
 
-    Missing inputs: their weight is redistributed across the available factors and
-    the result is flagged `degraded`. If rain information is missing, the score is
-    capped below "Hang Now". Raises InsufficientDataError if every factor is missing.
+    The score is always the DP percentile; a rain veto only changes the band (and
+    `veto` fields). Raises InsufficientDataError if temperature, humidity or wind is
+    missing, or if neither rainfall nor a forecast is available to decide the veto.
     """
-    forecast_text = conditions.forecast.text if conditions.forecast else None
-    rain, veto_reason = rain_subscore(_value(conditions.rainfall_mm), forecast_text)
-
-    humidity = _value(conditions.humidity_pct)
     temp = _value(conditions.temp_c)
-    wind = _value(conditions.wind_knots)
-    subs = SubScores(
-        rain=None if rain is None else round(rain, 1),
-        humidity=None if humidity is None else round(humidity_subscore(humidity), 1),
-        wind=None if wind is None else round(wind_subscore(wind), 1),
-        temperature=None if temp is None else round(temperature_subscore(temp), 1),
-    )
+    humidity = _value(conditions.humidity_pct)
+    wind_knots = _value(conditions.wind_knots)
+    if temp is None or humidity is None or wind_knots is None:
+        missing = [
+            name
+            for name, v in (("temperature", temp), ("humidity", humidity), ("wind", wind_knots))
+            if v is None
+        ]
+        raise InsufficientDataError(f"Missing drying inputs: {', '.join(missing)}")
 
-    weighted = [
-        (subs.rain, WEIGHT_RAIN),
-        (subs.humidity, WEIGHT_HUMIDITY),
-        (subs.wind, WEIGHT_WIND),
-        (subs.temperature, WEIGHT_TEMPERATURE),
-    ]
-    available = [(s, w) for s, w in weighted if s is not None]
-    if not available:
-        raise InsufficientDataError("No rain, humidity, wind or temperature data")
+    rainfall = _value(conditions.rainfall_mm)
+    forecast_text = conditions.forecast.text if conditions.forecast else None
+    if rainfall is None and forecast_text is None:
+        raise InsufficientDataError("No rainfall or forecast data to decide the rain veto")
 
-    total_weight = sum(w for _, w in available)
-    # Round half up (Python's round() is banker's rounding).
-    score = int(sum(s * w for s, w in available) / total_weight + 0.5)
-
-    veto = veto_reason is not None
-    if veto:
-        score = min(score, VETO_SCORE_CAP)
-    elif subs.rain is None:
-        score = min(score, MISSING_RAIN_SCORE_CAP)
+    dp = drying_potential(temp, humidity, wind_knots * KNOTS_TO_MS)
+    score = dp_to_score(dp)
+    veto_reason = rain_veto_reason(rainfall, forecast_text)
+    psi = _value(conditions.psi)
 
     return ScoreResult(
         score=score,
-        band=band_for(score),
-        sub_scores=subs,
-        veto=veto,
+        band=Band.DO_NOT_HANG if veto_reason else band_for(score),
+        veto=veto_reason is not None,
         veto_reason=veto_reason,
-        psi_caution=psi_caution(_value(conditions.psi)),
-        degraded=len(available) < len(weighted) or forecast_text is None,
+        psi_caution=psi_caution(psi),
+        air_quality_warning=psi is not None and psi > PSI_WARNING_ABOVE,
+        dp=round(dp, 4),
     )

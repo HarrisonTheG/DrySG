@@ -1,8 +1,9 @@
 # Stream A: weather ingestion and location lookup
 
 This implementation follows Isaac's `Conditions`, `ScoreResult`, `AreaSnapshot`,
-PostalCache schema and three-handler deployment contract. Scoring weights and
-the user/session API are unchanged.
+PostalCache schema and three-handler deployment contract. The scoring method has since
+changed to a Drying Potential percentile (see [lambda-backend.md](lambda-backend.md)); the
+user/session API is unchanged.
 
 ## Ownership and integration
 
@@ -52,9 +53,9 @@ the user/session API are unchanged.
 - HTTP requests use bounded timeouts; NEA makes one request per endpoint per run.
   Retries are left to the next scheduled run. Database errors propagate so failed
   persistence is not reported as a successful refresh.
-- Isaac's scorer treats a valid forecast as rain information even when the rainfall
-  feed is missing. The existing degraded flag and score cap are preserved: the cap
-  for missing rain applies when both rainfall and forecast are missing.
+- A valid forecast counts as rain information even when the rainfall feed is missing.
+  Scoring needs temperature, humidity and wind, plus rainfall or a forecast to decide
+  the rain veto; an area missing any of these is skipped. There is no degraded score.
 
 ## API handoff
 

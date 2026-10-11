@@ -1,29 +1,26 @@
 {
-  "postal_code": "018956",
-  "area": "City",
-  "score": 52,
-  "band": "Wait",
-  "sub_scores": {
-    "rain": 60.0,
-    "humidity": 40.0,
-    "wind": 59.4,
-    "temperature": 62.5
-  },
-  "veto": false,
-  "veto_reason": null,
-  "psi": {
-    "value": 112,
-    "level": "Unhealthy",
-    "region": "south"
-  },
+  "postalCode": "530123",
+  "areaName": "Hougang",
+  "score": 65,
+  "recommendation": "WAIT",
+  "summary": "Drying conditions are fair. Consider waiting for a better time. Air quality is unhealthy (PSI 132).",
+  "percentileDescription": "Drier than 65% of Singapore dry-weather readings in 2024",
+  "updatedAt": "2026-10-04T12:35:00+08:00",
   "conditions": {
-    "rainfall_mm": 0,
-    "humidity_pct": 81.0,
-    "temp_c": 29.0,
-    "wind_knots": 2.1,
-    "forecast": "Cloudy",
-    "forecast_valid_to": "2026-10-04T16:30:00+08:00"
+    "rainfallMm": 0.0,
+    "temperatureC": 29.5,
+    "humidityPercent": 75.0,
+    "windSpeedMs": 2.06,
+    "forecast": "Fair (Day)",
+    "psi": 132.0,
+    "psiBand": "Unhealthy"
   },
-  "degraded": false,
-  "updated_at": "2026-10-04T14:35:00+08:00"
+  "rainVeto": false,
+  "airQualityWarning": true,
+  "stationSources": {
+    "rainfall": "S07",
+    "humidity": "S109",
+    "temperature": "S24",
+    "wind": "S81"
+  }
 }

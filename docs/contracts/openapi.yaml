@@ -1,16 +1,20 @@
 openapi: 3.0.3
 info:
   title: DrySG API
-  version: 0.1.0
+  version: 0.2.0
   description: |
     Laundry drying recommendation and monitoring API.
     Served by API Gateway -> API Lambda (FastAPI + Mangum).
+    Full contract and scoring method: lambda-backend.md.
 
-    All timestamps are ISO 8601 with Singapore offset (+08:00).
+    All JSON is camelCase. All timestamps are ISO 8601 with Singapore offset (+08:00).
     Errors use the shared `Error` schema.
+
+    Implementation status: `GET /recommendation` is implemented. `/users`, `/users/verify`
+    and the `/laundry-sessions` routes are specified but not built yet.
 servers:
   - url: http://localhost:8000
-    description: Local FastAPI (uvicorn)
+    description: Local FastAPI (uvicorn), see services/scripts/run_api_local.py
   - url: https://{apiId}.execute-api.ap-southeast-1.amazonaws.com
     description: AWS (filled in by IaC)
     variables:
@@ -20,14 +24,20 @@ servers:
 paths:
   /recommendation:
     get:
-      summary: Current drying score for a postal code
+      summary: Current drying recommendation for a postal code
       description: |
-        Resolves the postal code to its nearest NEA forecast area and returns the
-        latest cached snapshot. Never calls NEA directly on the request path unless
-        no snapshot exists for the area (cold start fallback).
+        Resolves the postal code (OneMap, cached) to its nearest NEA forecast area and
+        returns that area's latest cached snapshot. Calls NEA only on a cold start, when no
+        snapshot exists for the area. A snapshot older than 30 minutes is treated as
+        unavailable (503).
+
+        The recommendation is decided in two steps: a rain veto (rain at the nearest station,
+        or rain words in the 2-hour forecast) forces `DO_NOT_HANG`; otherwise the score decides
+        (70-100 `HANG_NOW`, 50-69 `WAIT`, below 50 `DO_NOT_HANG`). PSI above 100 sets
+        `airQualityWarning` and never changes the recommendation.
       operationId: getRecommendation
       parameters:
-        - name: postal
+        - name: postalCode
           in: query
           required: true
           schema:
@@ -39,14 +49,14 @@ paths:
           description: Recommendation for the area
           content:
             application/json:
-              schema: { $ref: '#/components/schemas/Recommendation' }
+              schema: { $ref: '#/components/schemas/DryingRecommendation' }
         '400': { $ref: '#/components/responses/BadRequest' }
         '404': { $ref: '#/components/responses/NotFound' }
         '503': { $ref: '#/components/responses/Unavailable' }
 
   /users:
     post:
-      summary: Register an email and send a verification link
+      summary: Register an email and send a verification link (not built yet)
       description: |
         Idempotent. Re-sending to an unverified email issues a new token.
         The emailed link points to the frontend: `{APP_BASE_URL}/verify?email=..&token=..`,
@@ -71,7 +81,7 @@ paths:
 
   /users/verify:
     post:
-      summary: Confirm email ownership with the emailed token
+      summary: Confirm email ownership with the emailed token (not built yet)
       operationId: verifyUser
       requestBody:
         required: true
@@ -91,29 +101,31 @@ paths:
               schema: { $ref: '#/components/schemas/UserStatus' }
         '400': { $ref: '#/components/responses/BadRequest' }
 
-  /monitoring:
+  /laundry-sessions:
     post:
-      summary: Start monitoring (laundry is now hanging outside)
+      summary: Start monitoring (laundry is now hanging outside) (not built yet)
       description: |
-        Requires a verified email. Only one active session per email; starting a new
-        one stops the previous. Sessions auto-expire after `expires_at`.
-      operationId: startMonitoring
+        Requires a verified email. Only one active session per email: starting a new one
+        stops the previous. The session baseline (score, band, veto) is taken from the
+        area's current snapshot. Sessions expire 12 hours after `startedAt`. The email is
+        never echoed back.
+      operationId: startLaundrySession
       requestBody:
         required: true
         content:
           application/json:
             schema:
               type: object
-              required: [email, postal_code]
+              required: [postalCode, email]
               properties:
+                postalCode: { type: string, pattern: '^\d{6}$' }
                 email: { type: string, format: email }
-                postal_code: { type: string, pattern: '^\d{6}$' }
       responses:
         '201':
           description: Session started
           content:
             application/json:
-              schema: { $ref: '#/components/schemas/MonitoringSession' }
+              schema: { $ref: '#/components/schemas/LaundrySession' }
         '400': { $ref: '#/components/responses/BadRequest' }
         '403':
           description: Email not verified
@@ -121,40 +133,43 @@ paths:
             application/json:
               schema: { $ref: '#/components/schemas/Error' }
         '404': { $ref: '#/components/responses/NotFound' }
+        '503': { $ref: '#/components/responses/Unavailable' }
 
-  /monitoring/{session_id}:
+  /laundry-sessions/{id}:
     parameters:
-      - name: session_id
+      - name: id
         in: path
         required: true
         description: UUID4. Acts as the bearer secret for the session (also used in email stop links).
         schema: { type: string, format: uuid }
     get:
-      summary: Session status with the latest recommendation for its area
-      operationId: getMonitoring
+      summary: Monitoring state, with the latest recommendation for the session's area (not built yet)
+      operationId: getLaundrySession
       responses:
         '200':
           description: Session
           content:
             application/json:
-              schema: { $ref: '#/components/schemas/MonitoringSession' }
+              schema: { $ref: '#/components/schemas/LaundrySessionDetail' }
+        '400': { $ref: '#/components/responses/BadRequest' }
         '404': { $ref: '#/components/responses/NotFound' }
     delete:
-      summary: Stop monitoring (laundry brought in)
-      description: Idempotent. Stopping an already stopped/expired session returns 200.
-      operationId: stopMonitoring
+      summary: Stop monitoring (laundry brought in) (not built yet)
+      description: Idempotent. Stopping an already stopped or expired session returns 200.
+      operationId: stopLaundrySession
       responses:
         '200':
-          description: Session stopped
+          description: Session stopped (`active` is false)
           content:
             application/json:
-              schema: { $ref: '#/components/schemas/MonitoringSession' }
+              schema: { $ref: '#/components/schemas/LaundrySession' }
+        '400': { $ref: '#/components/responses/BadRequest' }
         '404': { $ref: '#/components/responses/NotFound' }
 
 components:
   responses:
     BadRequest:
-      description: Invalid input (e.g. malformed postal code or email, bad token)
+      description: Invalid input (malformed postal code, email, token or session id)
       content:
         application/json:
           schema: { $ref: '#/components/schemas/Error' }
@@ -164,7 +179,7 @@ components:
         application/json:
           schema: { $ref: '#/components/schemas/Error' }
     Unavailable:
-      description: Weather data temporarily unavailable
+      description: Weather or postal data temporarily unavailable
       content:
         application/json:
           schema: { $ref: '#/components/schemas/Error' }
@@ -185,65 +200,85 @@ components:
                 - POSTAL_CODE_NOT_FOUND
                 - INVALID_EMAIL
                 - INVALID_TOKEN
+                - INVALID_SESSION_ID
                 - EMAIL_NOT_VERIFIED
                 - SESSION_NOT_FOUND
                 - DATA_UNAVAILABLE
                 - INTERNAL_ERROR
             message: { type: string }
 
-    Band:
+    RecommendationState:
       type: string
-      enum: [Hang Now, Wait, Do Not Hang]
+      enum: [HANG_NOW, WAIT, DO_NOT_HANG]
 
-    PsiLevel:
-      type: string
-      enum: [Good, Moderate, Unhealthy, Very Unhealthy, Hazardous]
-
-    SubScores:
+    WeatherConditions:
       type: object
-      description: Each 0-100, null if the input was missing.
+      description: |
+        Current conditions at the nearest stations. `rainfallMm`, `forecast`, `psi` and
+        `psiBand` are null when that feed was unavailable.
+      required: [rainfallMm, temperatureC, humidityPercent, windSpeedMs, forecast, psi, psiBand]
       properties:
-        rain: { type: number, nullable: true }
-        humidity: { type: number, nullable: true }
-        wind: { type: number, nullable: true }
-        temperature: { type: number, nullable: true }
-
-    CurrentConditions:
-      type: object
-      description: Flattened values for display. Null when unavailable.
-      properties:
-        rainfall_mm: { type: number, nullable: true, description: 5-minute rainfall total }
-        humidity_pct: { type: number, nullable: true }
-        temp_c: { type: number, nullable: true }
-        wind_knots: { type: number, nullable: true }
+        rainfallMm: { type: number, nullable: true, description: 5-minute rainfall total }
+        temperatureC: { type: number }
+        humidityPercent: { type: number }
+        windSpeedMs: { type: number, description: Metres per second (NEA reports knots; converted) }
         forecast: { type: string, nullable: true, example: Partly Cloudy (Day) }
-        forecast_valid_to: { type: string, format: date-time, nullable: true }
+        psi: { type: number, nullable: true, description: 24-hour PSI of the nearest region }
+        psiBand:
+          type: string
+          nullable: true
+          enum: [Good, Moderate, Unhealthy, Very Unhealthy, Hazardous, null]
 
-    Psi:
+    StationSources:
       type: object
-      nullable: true
+      description: |
+        NEA station (or PSI region) that supplied each local observation. Metrics can come
+        from different nearby stations. Null when that feed was unavailable.
+      required: [rainfall, humidity, temperature, wind]
       properties:
-        value: { type: integer }
-        level: { $ref: '#/components/schemas/PsiLevel' }
-        region: { type: string, enum: [north, south, east, west, central] }
+        rainfall: { type: string, nullable: true, example: S07 }
+        humidity: { type: string, nullable: true, example: S109 }
+        temperature: { type: string, nullable: true, example: S24 }
+        wind: { type: string, nullable: true, example: S81 }
 
-    Recommendation:
+    DryingRecommendation:
       type: object
-      required: [postal_code, area, score, band, sub_scores, veto, conditions, degraded, updated_at]
+      required:
+        - postalCode
+        - areaName
+        - score
+        - recommendation
+        - summary
+        - updatedAt
+        - conditions
+        - rainVeto
+        - airQualityWarning
       properties:
-        postal_code: { type: string }
-        area: { type: string, example: Hougang }
-        score: { type: integer, minimum: 0, maximum: 100 }
-        band: { $ref: '#/components/schemas/Band' }
-        sub_scores: { $ref: '#/components/schemas/SubScores' }
-        veto: { type: boolean }
-        veto_reason: { type: string, nullable: true, example: Rain detected at nearby station }
-        psi: { $ref: '#/components/schemas/Psi' }
-        conditions: { $ref: '#/components/schemas/CurrentConditions' }
-        degraded:
+        postalCode: { type: string }
+        areaName: { type: string, example: Hougang }
+        score:
+          type: integer
+          minimum: 0
+          maximum: 100
+          description: |
+            Percentile of the current Drying Potential (temperature, humidity, wind) within
+            historical Singapore dry-weather readings. Still returned when a rain veto applies.
+        recommendation: { $ref: '#/components/schemas/RecommendationState' }
+        summary: { type: string }
+        percentileDescription:
+          type: string
+          nullable: true
+          description: Null when a rain veto applies
+          example: Drier than 82% of Singapore dry-weather readings in 2024
+        updatedAt: { type: string, format: date-time, description: When the snapshot was computed }
+        conditions: { $ref: '#/components/schemas/WeatherConditions' }
+        rainVeto:
           type: boolean
-          description: True if some inputs were missing and the score is less reliable
-        updated_at: { type: string, format: date-time, description: When the snapshot was computed }
+          description: True if observed or forecast rain forced DO_NOT_HANG
+        airQualityWarning:
+          type: boolean
+          description: True when PSI is above 100. Display only; never changes the recommendation
+        stationSources: { $ref: '#/components/schemas/StationSources' }
 
     UserStatus:
       type: object
@@ -252,21 +287,24 @@ components:
         email: { type: string, format: email }
         verified: { type: boolean }
 
-    MonitoringSession:
+    LaundrySession:
       type: object
-      required: [session_id, email, postal_code, area, status, started_at, expires_at]
+      required: [id, postalCode, startedAt, expiresAt, active]
       properties:
-        session_id: { type: string, format: uuid }
-        email: { type: string, format: email }
-        postal_code: { type: string }
-        area: { type: string }
-        status: { type: string, enum: [active, stopped, expired] }
-        started_at: { type: string, format: date-time }
-        expires_at: { type: string, format: date-time }
-        stopped_at: { type: string, format: date-time, nullable: true }
-        last_alert_at: { type: string, format: date-time, nullable: true }
-        current:
-          allOf:
-            - $ref: '#/components/schemas/Recommendation'
-          nullable: true
-          description: Latest recommendation for the session's area (GET only)
+        id: { type: string, format: uuid }
+        postalCode: { type: string }
+        startedAt: { type: string, format: date-time }
+        expiresAt: { type: string, format: date-time }
+        active:
+          type: boolean
+          description: False once stopped or past expiresAt
+
+    LaundrySessionDetail:
+      allOf:
+        - $ref: '#/components/schemas/LaundrySession'
+        - type: object
+          properties:
+            recommendation:
+              allOf:
+                - $ref: '#/components/schemas/DryingRecommendation'
+              description: Latest recommendation for the session's area. Omitted if unavailable

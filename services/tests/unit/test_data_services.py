@@ -114,16 +114,21 @@ def test_partial_feed_failure_preserves_isaac_scoring(database, has_forecast):
         return response
 
     with httpx.Client(transport=httpx.MockTransport(respond)) as http:
-        result = IngestionService(
+        service = IngestionService(
             NeaClient(http),
             AreaSnapshotRepository(database, "snapshots"),
-        ).run(now=NOW)
+        )
+        if not has_forecast:
+            # Neither rainfall nor forecast: the rain veto cannot be decided, so no
+            # area is scored and nothing is written.
+            with pytest.raises(DataUnavailableError):
+                service.run(now=NOW)
+            return
+        result = service.run(now=NOW)
     assert result.missing_feeds == ("rainfall",)
     assert all(s.conditions.rainfall_mm is None for s in result.snapshots)
-    if has_forecast:
-        assert all(s.result.sub_scores.rain is not None for s in result.snapshots)
-    else:
-        assert all(s.result.degraded and s.result.score <= 69 for s in result.snapshots)
+    # The forecast alone decides the rain veto, and the score still comes from DP.
+    assert all(s.result.dp is not None for s in result.snapshots)
 
 
 def test_database_failure_propagates(database):

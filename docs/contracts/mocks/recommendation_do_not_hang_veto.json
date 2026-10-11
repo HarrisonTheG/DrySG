@@ -1,29 +1,26 @@
 {
-  "postal_code": "570150",
-  "area": "Bishan",
-  "score": 22,
-  "band": "Do Not Hang",
-  "sub_scores": {
-    "rain": 0.0,
-    "humidity": 11.4,
-    "wind": 100.0,
-    "temperature": 37.5
-  },
-  "veto": true,
-  "veto_reason": "Rain detected at nearby station (1.2 mm in last 5 min)",
-  "psi": {
-    "value": 55,
-    "level": "Moderate",
-    "region": "central"
-  },
+  "postalCode": "530123",
+  "areaName": "Hougang",
+  "score": 36,
+  "recommendation": "DO_NOT_HANG",
+  "summary": "Rain detected at nearby station (0.6 mm in last 5 min). Do not hang.",
+  "percentileDescription": null,
+  "updatedAt": "2026-10-04T12:35:00+08:00",
   "conditions": {
-    "rainfall_mm": 1.2,
-    "humidity_pct": 91.0,
-    "temp_c": 27.0,
-    "wind_knots": 9.8,
-    "forecast": "Thundery Showers",
-    "forecast_valid_to": "2026-10-04T17:30:00+08:00"
+    "rainfallMm": 0.6,
+    "temperatureC": 29.0,
+    "humidityPercent": 82.0,
+    "windSpeedMs": 1.54,
+    "forecast": "Fair (Day)",
+    "psi": 48.0,
+    "psiBand": "Good"
   },
-  "degraded": false,
-  "updated_at": "2026-10-04T15:40:00+08:00"
+  "rainVeto": true,
+  "airQualityWarning": false,
+  "stationSources": {
+    "rainfall": "S07",
+    "humidity": "S109",
+    "temperature": "S24",
+    "wind": "S81"
+  }
 }

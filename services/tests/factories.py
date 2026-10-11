@@ -7,12 +7,13 @@ from drysg.core.models import (
     AreaSnapshot,
     Band,
     Conditions,
+    Forecast,
     MonitoringSession,
+    Reading,
     ScoreResult,
     SessionStatus,
-    SubScores,
 )
-from drysg.core.scoring import band_for
+from drysg.core.scoring import band_for, compute_score
 
 NOW = datetime.fromisoformat("2026-10-04T14:00:00+08:00")
 
@@ -44,8 +45,7 @@ def make_snapshot(
         conditions=Conditions(),
         result=ScoreResult(
             score=score,
-            band=band_for(score),
-            sub_scores=SubScores(),
+            band=Band.DO_NOT_HANG if veto_reason else band_for(score),
             veto=veto_reason is not None,
             veto_reason=veto_reason,
         ),
@@ -69,3 +69,44 @@ def make_alert(**overrides) -> AlertMessage:
     }
     fields.update(overrides)
     return AlertMessage(**fields)
+
+
+AREA_POINTS = {"Bishan": (1.3526, 103.8352), "Bedok": (1.3236, 103.9273)}
+
+
+def make_weather_snapshot(
+    area: str = "Bishan",
+    *,
+    at: datetime = NOW,
+    rain: float | None = 0.0,
+    temp: float = 31.0,
+    humidity: float = 70.0,
+    wind_knots: float = 6.0,
+    forecast: str | None = "Fair (Day)",
+    psi: float | None = 48.0,
+) -> AreaSnapshot:
+    """A scored snapshot built from raw conditions, with station sources set."""
+
+    def reading(value: float | None, source: str) -> Reading | None:
+        return None if value is None else Reading(value=value, observed_at=at, source=source)
+
+    conditions = Conditions(
+        rainfall_mm=reading(rain, "S07"),
+        humidity_pct=reading(humidity, "S109"),
+        temp_c=reading(temp, "S24"),
+        wind_knots=reading(wind_knots, "S81"),
+        forecast=None
+        if forecast is None
+        else Forecast(text=forecast, valid_from=at, valid_to=at + timedelta(hours=2)),
+        psi=reading(psi, "central"),
+    )
+    latitude, longitude = AREA_POINTS[area]
+    return AreaSnapshot(
+        area=area,
+        region="central",
+        latitude=latitude,
+        longitude=longitude,
+        conditions=conditions,
+        result=compute_score(conditions),
+        updated_at=at,
+    )
