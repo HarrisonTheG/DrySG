@@ -19,3 +19,14 @@ variable "ingest_reserved_concurrency" {
   type        = number
   default     = 1
 }
+
+variable "ses_sender" {
+  description = "From address for alert emails; must be verified in SES. Set in terraform.tfvars (gitignored)"
+  type        = string
+}
+
+variable "app_base_url" {
+  description = "Frontend URL used in email links (e.g. stop monitoring). CloudFront URL once the web app is hosted"
+  type        = string
+  default     = "http://localhost:5173"
+}

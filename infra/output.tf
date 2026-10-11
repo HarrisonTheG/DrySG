@@ -20,3 +20,7 @@ output "alert_dlq_url" {
 output "ingest_function_name" {
   value = aws_lambda_function.ingest.function_name
 }
+
+output "notifier_function_name" {
+  value = aws_lambda_function.notifier.function_name
+}

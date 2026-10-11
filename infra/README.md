@@ -51,3 +51,8 @@ First deploy tip: `terraform apply -var ingest_schedule_enabled=false`, invoke o
 aws lambda invoke --function-name drysg-dev-ingest --profile drysg out.json
 aws dynamodb scan --table-name drysg-dev-AreaSnapshot --select COUNT --profile drysg
 ```
+
+## Alert emails (SES)
+Copy `terraform.tfvars.example` to `terraform.tfvars` (gitignored) and set `ses_sender`, the From address for alert emails. After `terraform apply`, AWS emails that address a verification link; alerts can't be sent until it's clicked.
+
+SES starts in sandbox mode: it only delivers to verified addresses (~200/day). To receive test alerts, verify your own address in the SES console (Identities -> Create identity -> Email address).

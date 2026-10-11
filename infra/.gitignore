@@ -4,3 +4,6 @@
 crash.log
 # aws lambda invoke output
 out.json
+
+# Per-person settings (e.g. ses_sender); copy terraform.tfvars.example
+terraform.tfvars
