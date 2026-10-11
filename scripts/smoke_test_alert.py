@@ -24,7 +24,9 @@ TIMEOUT_SECONDS = 60
 
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
-    parser.add_argument("--email", required=True, help="Recipient of the test alert (must be verified in sandbox)")
+    parser.add_argument(
+        "--email", required=True, help="Recipient of the test alert (must be verified in sandbox)"
+    )
     parser.add_argument("--env", default="dev", help="Environment prefix (default: dev)")
     parser.add_argument("--profile", default="drysg", help="AWS CLI profile (default: drysg)")
     parser.add_argument("--area", default="Hougang", help="Area named in the test email")
