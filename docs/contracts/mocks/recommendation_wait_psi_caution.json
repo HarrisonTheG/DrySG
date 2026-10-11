@@ -1,29 +1,25 @@
 {
-  "postal_code": "018956",
-  "area": "City",
+  "postalCode": "018956",
+  "areaName": "City",
   "score": 52,
-  "band": "Wait",
-  "sub_scores": {
-    "rain": 60.0,
-    "humidity": 40.0,
-    "wind": 59.4,
-    "temperature": 62.5
-  },
-  "veto": false,
-  "veto_reason": null,
-  "psi": {
-    "value": 112,
-    "level": "Unhealthy",
-    "region": "south"
-  },
+  "recommendation": "WAIT",
+  "summary": "Fair drying conditions: humid and cloudy, so laundry will dry slowly.",
+  "updatedAt": "2026-10-04T14:35:00+08:00",
   "conditions": {
-    "rainfall_mm": 0,
-    "humidity_pct": 81.0,
-    "temp_c": 29.0,
-    "wind_knots": 2.1,
+    "rainfallMm": 0,
+    "temperatureC": 29.0,
+    "humidityPercent": 81.0,
+    "windSpeedMs": 1.1,
     "forecast": "Cloudy",
-    "forecast_valid_to": "2026-10-04T16:30:00+08:00"
+    "psi": 112,
+    "psiBand": "Unhealthy"
   },
-  "degraded": false,
-  "updated_at": "2026-10-04T14:35:00+08:00"
+  "rainVeto": false,
+  "airQualityWarning": true,
+  "stationSources": {
+    "rainfall": "S77",
+    "humidity": "S108",
+    "temperature": "S108",
+    "wind": "S108"
+  }
 }

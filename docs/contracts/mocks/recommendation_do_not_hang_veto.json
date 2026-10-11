@@ -1,29 +1,25 @@
 {
-  "postal_code": "570150",
-  "area": "Bishan",
+  "postalCode": "570150",
+  "areaName": "Bishan",
   "score": 22,
-  "band": "Do Not Hang",
-  "sub_scores": {
-    "rain": 0.0,
-    "humidity": 11.4,
-    "wind": 100.0,
-    "temperature": 37.5
-  },
-  "veto": true,
-  "veto_reason": "Rain detected at nearby station (1.2 mm in last 5 min)",
-  "psi": {
-    "value": 55,
-    "level": "Moderate",
-    "region": "central"
-  },
+  "recommendation": "DO_NOT_HANG",
+  "summary": "Rain detected at nearby station (1.2 mm in last 5 min).",
+  "updatedAt": "2026-10-04T15:40:00+08:00",
   "conditions": {
-    "rainfall_mm": 1.2,
-    "humidity_pct": 91.0,
-    "temp_c": 27.0,
-    "wind_knots": 9.8,
+    "rainfallMm": 1.2,
+    "temperatureC": 27.0,
+    "humidityPercent": 91.0,
+    "windSpeedMs": 5.0,
     "forecast": "Thundery Showers",
-    "forecast_valid_to": "2026-10-04T17:30:00+08:00"
+    "psi": 55,
+    "psiBand": "Moderate"
   },
-  "degraded": false,
-  "updated_at": "2026-10-04T15:40:00+08:00"
+  "rainVeto": true,
+  "airQualityWarning": false,
+  "stationSources": {
+    "rainfall": "S120",
+    "humidity": "S109",
+    "temperature": "S109",
+    "wind": "S109"
+  }
 }
