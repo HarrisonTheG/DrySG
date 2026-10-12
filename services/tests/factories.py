@@ -36,7 +36,12 @@ def make_session(**overrides) -> MonitoringSession:
 
 
 def make_snapshot(
-    score: int, *, area: str = "Bishan", veto_reason: str | None = None, at: datetime = NOW
+    score: int,
+    *,
+    area: str = "Bishan",
+    veto_reason: str | None = None,
+    at: datetime = NOW,
+    prev_score: int | None = None,
 ) -> AreaSnapshot:
     return AreaSnapshot(
         area=area,
@@ -51,6 +56,7 @@ def make_snapshot(
             veto_reason=veto_reason,
             method=SCORE_METHOD,
         ),
+        prev_score=prev_score,
         updated_at=at,
     )
 

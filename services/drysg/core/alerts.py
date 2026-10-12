@@ -17,7 +17,10 @@ from drysg.core.models import (
 )
 
 # A drop of at least this many points below the baseline alerts, unless the
-# new band is still Hang Now (still fine to dry, so not worth an email).
+# new band is still Hang Now (still fine to dry, so not worth an email). The score
+# is a percentile, and mid-range percentiles are close together in drying potential,
+# so single-station noise can swing it by this much for one 5-minute run. The drop
+# must therefore also hold in the previous run (the snapshot's prev_score) to alert.
 SCORE_DROP_THRESHOLD = 15
 # Minimum gap between alerts for one session. Bypassed when conditions
 # escalate to Do Not Hang or a new rain veto.
@@ -30,8 +33,14 @@ def band_worsened(old: Band, new: Band) -> bool:
     return _BAND_RANK[new] > _BAND_RANK[old]
 
 
-def deterioration_reason(session: MonitoringSession, new: ScoreResult) -> str | None:
-    """Why conditions are worse than the session's baseline, or None if they aren't."""
+def deterioration_reason(
+    session: MonitoringSession, new: ScoreResult, prev_score: int | None = None
+) -> str | None:
+    """Why conditions are worse than the session's baseline, or None if they aren't.
+
+    `prev_score` is the area's score in the previous ingest run (same method), used so a
+    score drop only alerts once it has lasted two runs. Band drops and rain alert at once.
+    """
     if new.veto and not session.baseline_veto:
         return new.veto_reason
     if session.baseline_method != new.method:
@@ -42,7 +51,8 @@ def deterioration_reason(session: MonitoringSession, new: ScoreResult) -> str | 
     if band_worsened(session.baseline_band, new.band):
         return f"Drying conditions dropped from {session.baseline_band} to {new.band}"
     drop = session.baseline_score - new.score
-    if drop >= SCORE_DROP_THRESHOLD and new.band is not Band.HANG_NOW:
+    held = prev_score is not None and session.baseline_score - prev_score >= SCORE_DROP_THRESHOLD
+    if drop >= SCORE_DROP_THRESHOLD and held and new.band is not Band.HANG_NOW:
         return f"Drying score fell from {session.baseline_score} to {new.score}"
     return None
 
@@ -70,7 +80,7 @@ def decide_alert(
         return None
 
     new = snapshot.result
-    reason = deterioration_reason(session, new)
+    reason = deterioration_reason(session, new, snapshot.prev_score)
     if reason is None:
         return None
     if in_cooldown(session, now) and not _is_escalation(session, new):
