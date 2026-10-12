@@ -244,9 +244,9 @@ def band_for(score):
 
 | State | Condition | Meaning with the current (2024) table |
 |---|---|---|
-| `DO_NOT_HANG` | rain veto, **or** score < 50 | rain, or DP below the historical median (1.64) |
-| `WAIT` | no veto and score 50 to 69 | DP between 1.64 and 2.49 |
-| `HANG_NOW` | no veto and score 70 to 100 | DP at or above 2.49 |
+| `DO_NOT_HANG` | rain veto, **or** score < 50 | rain, or DP below the historical median (1.70) |
+| `WAIT` | no veto and score 50 to 69 | DP between 1.70 and 2.57 |
+| `HANG_NOW` | no veto and score 70 to 100 | DP at or above 2.57 |
 
 The DP boundaries come from the percentile table, so they change when the table is rebuilt.
 
@@ -274,9 +274,9 @@ The DP boundaries come from the percentile table, so they change when the table 
 | Es(28.5) | 3.891 kPa |
 | VPD | 3.891 × (1 − 0.861) = 0.541 kPa |
 | DP | (1 + 0.536 × 3.452) × 0.541 = 2.850 × 0.541 = **1.542** |
-| Score | `DP_PERCENTILES[46] = 1.529 <= 1.542 < DP_PERCENTILES[47] = 1.555`, so **score 46** |
+| Score | `DP_PERCENTILES[45] = 1.526 <= 1.542 < DP_PERCENTILES[46] = 1.560`, so **score 45** |
 | Rain veto | no (0 mm, forecast has no rain words) |
-| State | 46 < 50, so **`DO_NOT_HANG`** (poor drying conditions, not a rain veto) |
+| State | 45 < 50, so **`DO_NOT_HANG`** (poor drying conditions, not a rain veto) |
 | Air quality | PSI 146 is above 100, so `airQualityWarning: true`, shown in the summary only |
 
 A drier example: 31 °C, 70% RH, 6 kt gives DP 3.578, score 84, so `HANG_NOW`.

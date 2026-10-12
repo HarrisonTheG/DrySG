@@ -1,10 +1,10 @@
 {
   "postalCode": "530123",
   "areaName": "Hougang",
-  "score": 65,
+  "score": 62,
   "recommendation": "WAIT",
   "summary": "Drying conditions are fair. Consider waiting for a better time. Air quality is unhealthy (PSI 132).",
-  "percentileDescription": "Drier than 65% of Singapore dry-weather readings in 2024",
+  "percentileDescription": "Drier than 62% of Singapore dry-weather readings in 2024",
   "updatedAt": "2026-10-04T12:35:00+08:00",
   "conditions": {
     "rainfallMm": 0.0,
