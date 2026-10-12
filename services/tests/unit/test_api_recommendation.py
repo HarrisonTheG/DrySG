@@ -7,12 +7,13 @@ from typing import Any
 import boto3
 import httpx
 import pytest
+from botocore.exceptions import ClientError
 from fastapi.testclient import TestClient
 from moto import mock_aws
 
 from drysg.api.app import ApiDeps, AreaCatalogue, ThrottledRefresh, create_app
 from drysg.core.locations import PostalLocation
-from drysg.data import LocationService, OneMapClient
+from drysg.data import DataUnavailableError, LocationService, OneMapClient, UpstreamError
 from drysg.db import AreaSnapshotRepository, PostalCacheRepository
 from tests.factories import NOW, make_weather_snapshot
 
@@ -349,6 +350,26 @@ def test_cold_start_with_failing_refresh_is_500_not_a_wrong_answer(database, sna
     assert response.json()["error"]["code"] == "INTERNAL_ERROR"
 
 
+@pytest.mark.parametrize(
+    "error",
+    [
+        UpstreamError("NEA timed out"),
+        DataUnavailableError("No fresh scoring inputs are available"),
+        ClientError({"Error": {"Code": "ProvisionedThroughputExceededException"}}, "PutItem"),
+    ],
+)
+def test_cold_start_refresh_without_data_is_503(database, snapshots, onemap, error):
+    cache_postal_in_bishan(database)
+    snapshots.save_all([make_weather_snapshot("Bedok")])  # catalogue exists, Bishan has none
+
+    def refresh():
+        raise error
+
+    response = get(build_client(database, snapshots, onemap, refresh=refresh))
+    assert response.status_code == 503
+    assert response.json()["error"]["code"] == "DATA_UNAVAILABLE"
+
+
 def test_empty_catalogue_without_refresh_is_503(database, snapshots, onemap):
     assert get(build_client(database, snapshots, onemap)).status_code == 503
 
@@ -384,6 +405,21 @@ def test_cors_allows_the_configured_origin(database, snapshots, onemap):
         params={"postalCode": BISHAN_POSTAL},
         headers={"Origin": "https://app.example.com"},
     )
+    assert response.headers["access-control-allow-origin"] == "https://app.example.com"
+
+
+def test_unexpected_500_still_has_cors_headers(database, snapshots, onemap):
+    def broken():
+        raise RuntimeError("boom")
+
+    app = create_app(broken, cors_origins=["https://app.example.com"])
+    response = TestClient(app, raise_server_exceptions=False).get(
+        "/recommendation",
+        params={"postalCode": BISHAN_POSTAL},
+        headers={"Origin": "https://app.example.com"},
+    )
+    assert response.status_code == 500
+    assert response.json()["error"]["code"] == "INTERNAL_ERROR"
     assert response.headers["access-control-allow-origin"] == "https://app.example.com"
 
 

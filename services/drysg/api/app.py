@@ -13,6 +13,7 @@ from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
 from typing import Annotated
 
+from botocore.exceptions import BotoCoreError, ClientError
 from fastapi import Depends, FastAPI, Query, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
@@ -35,6 +36,8 @@ logger = logging.getLogger(__name__)
 # A snapshot older than this is treated as unavailable (6 missed 5-minute ingest runs).
 SNAPSHOT_MAX_AGE = timedelta(minutes=30)
 CATALOGUE_TTL_S = 3600.0
+# Failures of the cold-start refresh that mean "no data right now" (503), not a bug (500).
+REFRESH_UNAVAILABLE_ERRORS = (UpstreamError, DataUnavailableError, ClientError, BotoCoreError)
 
 
 class ApiProblem(Exception):
@@ -114,7 +117,10 @@ def _fresh_snapshot(deps: ApiDeps, area: str) -> AreaSnapshot:
     snapshot = deps.snapshots.get(area)
     if snapshot is None and deps.refresh is not None:
         logger.info("No snapshot for %s; running cold-start refresh", area)
-        deps.refresh()
+        try:
+            deps.refresh()
+        except REFRESH_UNAVAILABLE_ERRORS as exc:
+            logger.warning("Cold-start refresh failed: %s", exc)
         snapshot = deps.snapshots.get(area)
     if snapshot is None:
         raise ApiProblem(503, "DATA_UNAVAILABLE", "No weather data for this area yet")
@@ -159,14 +165,6 @@ def create_app(
         redoc_url=None,
         openapi_url="/openapi.json" if enable_docs else None,
     )
-    if cors_origins:
-        app.add_middleware(
-            CORSMiddleware,
-            allow_origins=cors_origins,
-            allow_methods=["GET", "POST", "DELETE", "OPTIONS"],
-            allow_headers=["*"],
-        )
-
     def error_response(status: int, code: str, message: str) -> JSONResponse:
         body = ApiError(error=ErrorBody(code=code, message=message))
         return JSONResponse(status_code=status, content=body.model_dump())
@@ -175,10 +173,25 @@ def create_app(
     async def handle_problem(_: Request, exc: ApiProblem) -> JSONResponse:
         return error_response(exc.status, exc.code, exc.message)
 
-    @app.exception_handler(Exception)
-    async def handle_unexpected(_: Request, exc: Exception) -> JSONResponse:
-        logger.exception("Unhandled error", exc_info=exc)
-        return error_response(500, "INTERNAL_ERROR", "Something went wrong")
+    # Unexpected errors are caught in a middleware rather than an Exception handler:
+    # Starlette runs Exception handlers outside every middleware, so their 500s would
+    # skip CORSMiddleware and the browser would hide the error body from the frontend.
+    # CORSMiddleware is added after this, which makes it the outer layer.
+    @app.middleware("http")
+    async def handle_unexpected(request: Request, call_next):
+        try:
+            return await call_next(request)
+        except Exception:
+            logger.exception("Unhandled error")
+            return error_response(500, "INTERNAL_ERROR", "Something went wrong")
+
+    if cors_origins:
+        app.add_middleware(
+            CORSMiddleware,
+            allow_origins=cors_origins,
+            allow_methods=["GET", "POST", "DELETE", "OPTIONS"],
+            allow_headers=["*"],
+        )
 
     @app.get(
         "/recommendation",
