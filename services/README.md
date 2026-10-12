@@ -264,7 +264,7 @@ The DP boundaries come from the percentile table, so they change when the table 
 
 3. Convert DP to a score: `score = highest k such that DP_PERCENTILES[k] <= DP` (0 if below the
    minimum, 100 at or above the maximum). `DP_PERCENTILES[k]` is the k-th percentile of DP over
-   rain-free 5-minute marks in 2024.
+   rain-free single-station 5-minute samples in 2024.
 
 **Worked example** (the live reading for postal code 570150 from the manual test):
 
@@ -312,7 +312,7 @@ Lambdas never run the script. The current table is built from **2024**.
 .venv/bin/python -I scripts/build_dp_percentiles.py --year 2025 \
     --cache-dir ~/dp-cache-2025 \
     --output /tmp/dp_percentiles_2025.py \
-    --marks-csv /tmp/dp_marks_2025.csv
+    --samples-csv /tmp/dp_samples_2025.csv
 ```
 
 - It downloads about 4,400 pages from data.gov.sg at roughly one per second, so expect
@@ -321,7 +321,7 @@ Lambdas never run the script. The current table is built from **2024**.
   persists; the default is `services/.cache/dp_percentiles` (ignored by Git).
 - `--windows-per-day` (default 3) sets how many 25-minute windows are sampled per day. More
   windows means more samples and a longer run.
-- The script refuses to write a table built from fewer than 1,000 usable marks.
+- The script refuses to write a table built from fewer than 1,000 usable samples.
 
 ```bash
 # 2. Compare against the current table (the year, sample count and all 101 values):
@@ -340,8 +340,8 @@ regenerated file and the CSV (optional audit trail, kept in `docs/` for 2024), a
 the API and ingest Lambdas. They share the table, so they must be deployed together. Scores
 shift slightly on the next ingest run.
 
-To rebuild 2024 or inspect how the table is derived, use `--year 2024 --marks-csv ...`; the
-CSV has one row per 5-minute mark with the station medians, DP and resulting score.
+To rebuild 2024 or inspect how the table is derived, use `--year 2024 --samples-csv ...`; the
+CSV has one row per station sample with its readings, DP and resulting score.
 
 ## Other notes
 

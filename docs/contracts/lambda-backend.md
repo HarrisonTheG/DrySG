@@ -190,14 +190,18 @@ The table must have exactly 101 entries and be non-decreasing. A unit test asser
 ### Building the table (offline script, `services/scripts/build_dp_percentiles.py`)
 1. Download all of 2024 (a full year covers monsoon seasons) of 5-minute air temperature, relative
    humidity, wind speed and rainfall from data.gov.sg (NEA real-time APIs, historical).
-2. For each 5-minute timestamp, take the **median across all stations** for temperature, humidity
-   and wind.
-3. **Drop timestamps where rainfall is detected** (any station reports > 0 mm), because rain is
-   handled by the veto and the score only describes rain-free conditions. Also drop timestamps
-   missing any of the three metrics.
-4. Convert wind to m/s, compute DP per timestamp, sort ascending.
-5. Emit the 0th-100th percentile values (rounded to 3 decimal places) as `DP_PERCENTILES`, and
-   record the source year and row count in a comment next to the table.
+2. For each 5-minute timestamp, **every station that reports temperature, humidity and wind gives
+   one sample** from its own readings. Live scoring uses the nearest single station, so the history
+   is built from single stations too. An island-wide median would have a narrower spread and push
+   live scores towards 0 and 100.
+3. **Drop a sample when that station had rain** (its own gauge, or the nearest gauge if it has
+   none), because rain is handled by the veto and the score only describes rain-free conditions.
+   Rain elsewhere on the island does not drop it, which matches the live veto and avoids biasing
+   the history towards island-wide dry days. Also drop samples missing any of the three metrics.
+4. Convert wind to m/s, compute DP per sample, sort ascending.
+5. Emit the 0th-100th percentile values (rounded to 3 decimal places) as `DP_PERCENTILES`, the
+   median of each input as `DP_INPUT_MEDIANS` (the fallback for a missing live feed), and record
+   the source year and sample count next to the table.
 
 `percentileDescription` text: `"Drier than {score}% of Singapore weather in {year}"`.
 Because the table has no rainy timestamps, the percentile reads as "of rain-free conditions";
@@ -313,7 +317,7 @@ unaffected.
   (4,352 rain-free marks, `DP_PERCENTILES_YEAR = 2024`). The data.gov.sg API still serves
   2025 and 2026, so the table can be refreshed. Prefer a full year: a partial 2026 would miss
   the wetter Nov-Dec weather and bias every score.
-  - Run: `cd services && .venv/bin/python -I scripts/build_dp_percentiles.py --year 2025 --cache-dir <dir> --marks-csv <csv>`
+  - Run: `cd services && .venv/bin/python -I scripts/build_dp_percentiles.py --year 2025 --cache-dir <dir> --samples-csv <csv>`
     (about 1.5-2.5 hours because of the NEA rate limit; the 2024 cache is not reused).
   - Compare against the 2024 table before switching, and consider merging 2024 + 2025
     (needs a small script change) to smooth out a single unusual year.
