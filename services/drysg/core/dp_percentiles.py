@@ -35,3 +35,9 @@ DP_PERCENTILES: tuple[float, ...] = (
     4.785, 4.993, 5.249, 5.689, 6.263,
     8.067,
 )
+
+DP_INPUT_MEDIANS: dict[str, float] = {
+    "humidity_pct": 77.8,
+    "temp_c": 28.6,
+    "wind_knots": 3.5,
+}

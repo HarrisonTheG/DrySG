@@ -13,6 +13,7 @@ from moto import mock_aws
 
 from drysg.api.app import ApiDeps, AreaCatalogue, ThrottledRefresh, create_app
 from drysg.core.locations import PostalLocation
+from drysg.core.scoring import compute_score
 from drysg.data import DataUnavailableError, LocationService, OneMapClient, UpstreamError
 from drysg.db import AreaSnapshotRepository, PostalCacheRepository
 from tests.factories import NOW, make_weather_snapshot
@@ -153,6 +154,7 @@ def test_response_matches_the_frontend_contract_keys(client):
         "rainVeto",
         "airQualityWarning",
         "stationSources",
+        "degraded",  # backend addition; optional for the frontend type
     }
     assert set(body["conditions"]) == {
         "rainfallMm",
@@ -459,6 +461,26 @@ def test_throttled_refresh_does_not_retry_a_failure_immediately():
         refresh()
     refresh()  # throttled: no second attempt, no exception
     assert len(calls) == 1
+
+
+def test_estimated_input_is_null_and_flagged_degraded(database, snapshots, onemap):
+    # The wind feed was down: scoring used the historical median and flagged it.
+    snapshot = make_weather_snapshot("Bishan")
+    snapshot.conditions.wind_knots = None
+    snapshot.result = compute_score(snapshot.conditions)
+    snapshots.save_all([snapshot])
+    body = get(build_client(database, snapshots, onemap)).json()
+    assert body["degraded"] is True
+    assert body["conditions"]["windSpeedMs"] is None
+    assert body["stationSources"]["wind"] is None
+    assert body["score"] == snapshot.result.score
+    assert "estimate" in body["summary"]
+
+
+def test_complete_snapshot_is_not_degraded(client):
+    body = get(client).json()
+    assert body["degraded"] is False
+    assert "estimate" not in body["summary"]
 
 
 def test_snapshot_missing_required_inputs_is_503_not_500(database, snapshots, onemap):

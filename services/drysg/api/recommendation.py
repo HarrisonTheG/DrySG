@@ -46,17 +46,18 @@ def _summary(snapshot: AreaSnapshot) -> str:
     psi, level = snapshot.conditions.psi, result.psi_caution
     if result.air_quality_warning and psi is not None and level is not None:
         text += f" Air quality is {level.value.lower()} (PSI {psi.value:g})."
+    if result.degraded:
+        text += " Some weather readings are unavailable, so this score is an estimate."
     return text
 
 
 def to_recommendation(snapshot: AreaSnapshot, postal_code: str) -> DryingRecommendation:
     """Map a stored snapshot to the API shape.
 
-    Scoring guarantees temperature, humidity and wind are present, so only rainfall,
-    forecast and PSI can be null.
+    Temperature, humidity and wind are only null when scoring estimated them (`degraded`).
     """
     c, r = snapshot.conditions, snapshot.result
-    if c.temp_c is None or c.humidity_pct is None or c.wind_knots is None:
+    if not r.degraded and (c.temp_c is None or c.humidity_pct is None or c.wind_knots is None):
         # Only possible for a snapshot written by older code; the next ingest replaces it.
         raise SnapshotIncompleteError(snapshot.area)
     return DryingRecommendation(
@@ -69,9 +70,11 @@ def to_recommendation(snapshot: AreaSnapshot, postal_code: str) -> DryingRecomme
         updatedAt=snapshot.updated_at.astimezone(SGT).isoformat(),
         conditions=WeatherConditions(
             rainfallMm=_value(c.rainfall_mm),
-            temperatureC=c.temp_c.value,
-            humidityPercent=c.humidity_pct.value,
-            windSpeedMs=round(c.wind_knots.value * KNOTS_TO_MS, 1),
+            temperatureC=_value(c.temp_c),
+            humidityPercent=_value(c.humidity_pct),
+            windSpeedMs=(
+                None if c.wind_knots is None else round(c.wind_knots.value * KNOTS_TO_MS, 1)
+            ),
             forecast=None if c.forecast is None else c.forecast.text,
             psi=_value(c.psi),
             psiBand=None if r.psi_caution is None else r.psi_caution.value,
@@ -84,4 +87,5 @@ def to_recommendation(snapshot: AreaSnapshot, postal_code: str) -> DryingRecomme
             temperature=_source(c.temp_c),
             wind=_source(c.wind_knots),
         ),
+        degraded=r.degraded,
     )

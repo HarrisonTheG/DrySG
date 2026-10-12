@@ -74,6 +74,14 @@ class ScoreResult(BaseModel):
     dp: float | None = Field(
         default=None, description="Drying potential (Penman aerodynamic term) behind the score"
     )
+    degraded: bool = Field(
+        default=False,
+        description="True if a missing input was replaced by its historical median",
+    )
+    estimated_inputs: list[str] = Field(
+        default_factory=list,
+        description="Inputs replaced by their historical median: temp_c, humidity_pct, wind_knots",
+    )
     method: str | None = Field(
         default=None,
         description=(

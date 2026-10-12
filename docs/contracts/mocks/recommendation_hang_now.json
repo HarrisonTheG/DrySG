@@ -22,5 +22,6 @@
     "humidity": "S109",
     "temperature": "S24",
     "wind": "S81"
-  }
+  },
+  "degraded": false
 }

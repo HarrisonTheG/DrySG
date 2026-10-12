@@ -19,12 +19,16 @@ PsiBand = Literal["Good", "Moderate", "Unhealthy", "Very Unhealthy", "Hazardous"
 
 
 class WeatherConditions(BaseModel):
-    """Current conditions. Rainfall, forecast and PSI are null when that feed was missing."""
+    """Current conditions. Any value is null when its feed was missing.
+
+    A missing temperature, humidity or wind reading is scored with its historical median
+    (see `DryingRecommendation.degraded`), but is still shown as null here.
+    """
 
     rainfallMm: float | None
-    temperatureC: float
-    humidityPercent: float
-    windSpeedMs: float
+    temperatureC: float | None
+    humidityPercent: float | None
+    windSpeedMs: float | None
     forecast: str | None
     psi: float | None
     psiBand: PsiBand | None
@@ -51,6 +55,7 @@ class DryingRecommendation(BaseModel):
     rainVeto: bool
     airQualityWarning: bool
     stationSources: StationSources | None = None
+    degraded: bool = False
 
 
 class ErrorBody(BaseModel):

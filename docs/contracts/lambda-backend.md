@@ -209,9 +209,13 @@ Because the table has no rainy timestamps, the percentile reads as "of rain-free
 word it accordingly in the UI ("of dry-weather readings").
 
 ### Scoring input requirements
-- Required to publish a snapshot: temperature, humidity and wind (needed for DP) and at least one of
-  rainfall or forecast (needed for the veto decision). Otherwise the area is skipped and the API
-  returns `503` once its last snapshot is stale.
+- Temperature, humidity and wind feed DP. If one or two are missing (e.g. an NEA feed is down),
+  each missing one is replaced by its 2024 median (`DP_INPUT_MEDIANS`, generated with the table),
+  the result is flagged `degraded`, and the response shows the missing value as null with a note
+  in `summary`. One failed feed therefore never takes every area offline.
+- Required to publish a snapshot: at least one of temperature, humidity or wind, and at least one
+  of rainfall or forecast (needed for the veto decision). Otherwise the area is skipped and the
+  API returns `503` once its last snapshot is stale.
 - PSI is required in the response type. If the PSI feed is missing, the ingest keeps the area's
   last known PSI while it is under 2 hours old (existing freshness rule); beyond that the area is
   skipped (open question 2).

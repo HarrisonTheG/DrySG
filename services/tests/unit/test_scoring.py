@@ -5,6 +5,7 @@ from datetime import datetime, timedelta
 import pytest
 
 from drysg.core import dp_percentiles, scoring
+from drysg.core.dp_percentiles import DP_INPUT_MEDIANS
 from drysg.core.models import Band, Conditions, Forecast, PsiLevel, Reading
 from drysg.core.scoring import (
     InsufficientDataError,
@@ -294,10 +295,34 @@ def test_psi_does_not_affect_score_or_band():
     assert (clean.score, clean.band) == (hazy.score, hazy.band)
 
 
-@pytest.mark.parametrize("missing", ["temp", "humidity", "wind"])
-def test_missing_drying_input_raises(missing):
+@pytest.mark.parametrize(
+    ("missing", "field"),
+    [("temp", "temp_c"), ("humidity", "humidity_pct"), ("wind", "wind_knots")],
+)
+def test_missing_drying_input_uses_historical_median(missing, field):
+    result = compute_score(make_conditions(**{missing: None}))
+    assert result.degraded is True
+    assert result.estimated_inputs == [field]
+    medians = {"temp": 32.0, "humidity": 60.0, "wind": 10.0, missing: DP_INPUT_MEDIANS[field]}
+    expected = compute_score(make_conditions(**medians))
+    assert (result.score, result.dp) == (expected.score, expected.dp)
+    assert expected.degraded is False
+
+
+def test_two_missing_inputs_still_score():
+    result = compute_score(make_conditions(temp=None, wind=None))
+    assert result.estimated_inputs == ["temp_c", "wind_knots"]
+    assert result.degraded is True
+
+
+def test_all_three_drying_inputs_missing_raises():
     with pytest.raises(InsufficientDataError, match="Missing drying inputs"):
-        compute_score(make_conditions(**{missing: None}))
+        compute_score(make_conditions(temp=None, humidity=None, wind=None))
+
+
+def test_estimated_input_does_not_hide_rain():
+    result = compute_score(make_conditions(wind=None, rain=1.2))
+    assert result.veto is True and result.band is Band.DO_NOT_HANG and result.degraded
 
 
 def test_missing_rain_information_raises():

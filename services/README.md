@@ -286,9 +286,11 @@ A drier example: 31 °C, 70% RH, 6 kt gives DP 3.578, score 84, so `HANG_NOW`.
 - **Forecast text** matters only through the rain keywords. "Cloudy" and "Fair" score the same.
 - **Time of day** is not an input, but DP is naturally low at night, so night scores are low.
 
-**Missing data.** Temperature, humidity and wind are required, plus either rainfall or a
-forecast (to decide the veto). If any are missing, that area is skipped by the ingest and the
-API returns `503` once its last snapshot is older than 30 minutes.
+**Missing data.** A missing temperature, humidity or wind reading is replaced by its 2024
+median (`DP_INPUT_MEDIANS`) and the response sets `degraded: true`, shows that value as null and
+says the score is an estimate. An area is only skipped when all three are missing, or when both
+rainfall and the forecast are missing (the veto cannot be decided); the API then returns `503`
+once its last snapshot is older than 30 minutes.
 
 ## 5. Run the ingest locally (no server)
 

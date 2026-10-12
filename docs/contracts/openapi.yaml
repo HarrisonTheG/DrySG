@@ -214,17 +214,18 @@ components:
     WeatherConditions:
       type: object
       description: |
-        Current inputs for display. Temperature, humidity and wind are always present
-        (scoring requires them). `rainfallMm`, `forecast`, `psi` and `psiBand` are null
-        when that feed was unavailable; rain is then decided from whichever of rainfall
-        and forecast is available.
+        Current inputs for display. A value is null when its feed was unavailable. A
+        missing temperature, humidity or wind reading is scored with its historical
+        median (`degraded` is then true) but still shown as null. Rain is decided from
+        whichever of rainfall and forecast is available.
       required: [rainfallMm, temperatureC, humidityPercent, windSpeedMs, forecast, psi, psiBand]
       properties:
         rainfallMm: { type: number, nullable: true, description: 5-minute rainfall total at the nearest station }
-        temperatureC: { type: number }
-        humidityPercent: { type: number }
+        temperatureC: { type: number, nullable: true }
+        humidityPercent: { type: number, nullable: true }
         windSpeedMs:
           type: number
+          nullable: true
           description: Metres per second. NEA reports knots; the API converts (1 kt = 0.514444 m/s), 1 decimal place.
         forecast: { type: string, nullable: true, example: Partly Cloudy (Day), description: NEA 2-hour forecast text for the area }
         psi: { type: number, nullable: true, description: 24-hour PSI for the area's region }
@@ -275,6 +276,12 @@ components:
           type: boolean
           description: True when psiBand is Unhealthy or worse (PSI > 100). Shown separately; never affects the score.
         stationSources: { $ref: '#/components/schemas/StationSources' }
+        degraded:
+          type: boolean
+          default: false
+          description: |
+            True when a temperature, humidity or wind feed was missing and its historical
+            median was used instead, so the score is an estimate. `summary` says so too.
 
     UserStatus:
       type: object

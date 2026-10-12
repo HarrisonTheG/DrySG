@@ -18,7 +18,7 @@ import math
 import re
 from bisect import bisect_right
 
-from drysg.core.dp_percentiles import DP_PERCENTILES, DP_PERCENTILES_YEAR
+from drysg.core.dp_percentiles import DP_INPUT_MEDIANS, DP_PERCENTILES, DP_PERCENTILES_YEAR
 from drysg.core.models import Band, Conditions, PsiLevel, ScoreResult
 
 # Identifies the formula and table behind a score. It changes when the table is rebuilt,
@@ -143,19 +143,24 @@ def compute_score(conditions: Conditions) -> ScoreResult:
     """Score an area's conditions.
 
     The score is always the DP percentile; a rain veto only changes the band (and
-    `veto` fields). Raises InsufficientDataError if temperature, humidity or wind is
-    missing, or if neither rainfall nor a forecast is available to decide the veto.
+    `veto` fields). A missing temperature, humidity or wind reading (e.g. one NEA feed
+    is down) is replaced by its historical median and the result is flagged `degraded`,
+    so one failed feed does not take every area offline.
+
+    Raises InsufficientDataError if all three drying inputs are missing (the score would
+    be meaningless), or if neither rainfall nor a forecast is available to decide the veto.
     """
-    temp = _value(conditions.temp_c)
-    humidity = _value(conditions.humidity_pct)
-    wind_knots = _value(conditions.wind_knots)
-    if temp is None or humidity is None or wind_knots is None:
-        missing = [
-            name
-            for name, v in (("temperature", temp), ("humidity", humidity), ("wind", wind_knots))
-            if v is None
-        ]
-        raise InsufficientDataError(f"Missing drying inputs: {', '.join(missing)}")
+    inputs = {
+        "temp_c": _value(conditions.temp_c),
+        "humidity_pct": _value(conditions.humidity_pct),
+        "wind_knots": _value(conditions.wind_knots),
+    }
+    estimated = [name for name, value in inputs.items() if value is None]
+    if len(estimated) == len(inputs):
+        raise InsufficientDataError("Missing drying inputs: temperature, humidity and wind")
+    for name in estimated:
+        inputs[name] = DP_INPUT_MEDIANS[name]
+    temp, humidity, wind_knots = inputs["temp_c"], inputs["humidity_pct"], inputs["wind_knots"]
 
     rainfall = _value(conditions.rainfall_mm)
     forecast_text = conditions.forecast.text if conditions.forecast else None
@@ -175,5 +180,7 @@ def compute_score(conditions: Conditions) -> ScoreResult:
         psi_caution=psi_caution(psi),
         air_quality_warning=psi is not None and psi > PSI_WARNING_ABOVE,
         dp=round(dp, 4),
+        degraded=bool(estimated),
+        estimated_inputs=estimated,
         method=SCORE_METHOD,
     )
