@@ -32,8 +32,9 @@ All JSON is `camelCase`. All timestamps are ISO 8601 with the Singapore offset (
 ```
 - Requires a verified email (verification flow unchanged: `POST /users`, `POST /users/verify`).
 - One active session per email: starting a new one stops the previous one.
-- Sets the session's `baseline_score`, `baseline_band` and `baseline_veto` from the current
-  snapshot (the alert trigger compares against these).
+- Sets the session's `baseline_score`, `baseline_band`, `baseline_veto` and `baseline_method`
+  from the current snapshot's `result` (`score`, `band`, `veto`, `method`). The alert trigger
+  compares against these, and only compares scores when the methods match.
 - Sessions expire **12 hours** after `startedAt`.
 
 ### GET /laundry-sessions/{id}

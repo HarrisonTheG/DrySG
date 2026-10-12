@@ -74,6 +74,13 @@ class ScoreResult(BaseModel):
     dp: float | None = Field(
         default=None, description="Drying potential (Penman aerodynamic term) behind the score"
     )
+    method: str | None = Field(
+        default=None,
+        description=(
+            "Scoring method and table that produced `score`, e.g. 'dp-percentile-2024'. "
+            "Scores from different methods are not comparable. None: written by older code."
+        ),
+    )
 
 
 class AreaSnapshot(BaseModel):
@@ -115,6 +122,7 @@ class MonitoringSession(BaseModel):
     baseline_score: int
     baseline_band: Band
     baseline_veto: bool = False
+    baseline_method: str | None = None  # ScoreResult.method of the baseline score
     last_alert_at: datetime | None = None
     last_alert_band: Band | None = None
 
@@ -131,5 +139,6 @@ class AlertMessage(BaseModel):
     new_score: int
     new_band: Band
     new_veto: bool = False
+    new_method: str | None = None  # ScoreResult.method of new_score
     reason: str = Field(description="Human-readable cause, e.g. 'Rain detected nearby'")
     snapshot_ts: datetime

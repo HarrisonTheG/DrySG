@@ -14,6 +14,7 @@ from moto import mock_aws
 from pydantic import ValidationError
 
 from drysg.core.locations import AreaLocation, PostalLocation
+from drysg.core.scoring import SCORE_METHOD
 from drysg.data import (
     DataUnavailableError,
     IngestionService,
@@ -81,6 +82,23 @@ def test_ingestion_roundtrip_previous_scores_and_request_count(database):
     assert isinstance(item["updated_at"], str)
     assert {area.area for area in repo.list_areas()} == set(previous)
     assert repo.get("not an area") is None
+
+
+def test_previous_score_from_another_method_is_not_compared(database):
+    repo = AreaSnapshotRepository(database, "snapshots")
+    with httpx.Client(transport=httpx.MockTransport(fixture_response)) as http:
+        service = IngestionService(NeaClient(http), repo)
+        first = service.run(now=NOW)
+        # Pretend the stored snapshots came from the old weighted scorer.
+        repo.save_all(
+            [
+                s.model_copy(update={"result": s.result.model_copy(update={"method": None})})
+                for s in first.snapshots
+            ]
+        )
+        second = service.run(now=NOW + timedelta(minutes=1))
+    assert all(s.result.method == SCORE_METHOD for s in second.snapshots)
+    assert all(s.prev_score is None and s.prev_band is None for s in second.snapshots)
 
 
 def test_failed_refresh_keeps_previous_snapshot(database):

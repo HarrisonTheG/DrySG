@@ -53,6 +53,7 @@ snapshot's `updated_at` timestamp.
   "new_score": 32,
   "new_band": "Do Not Hang",
   "new_veto": true,
+  "new_method": "dp-percentile-2024",
   "reason": "Rain detected at nearby station",
   "snapshot_ts": "2026-10-04T14:05:00+08:00"
 }

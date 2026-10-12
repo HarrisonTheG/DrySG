@@ -54,6 +54,7 @@ No TTL. Postal codes rarely move, and the nearest area can be recomputed if area
 | `baseline_score` | N | Score the user was last told about. **The API sets it from the area snapshot at session start**, and the notifier updates it after each alert |
 | `baseline_band` | S | Band matching `baseline_score` |
 | `baseline_veto` | BOOL | Whether the baseline state was a rain veto |
+| `baseline_method` | S | `result.method` of the baseline snapshot, e.g. `dp-percentile-2024`. Score and band alerts only fire when it matches the new snapshot's method; a rain veto alerts either way |
 | `last_alert_at` | S | ISO timestamp, used for cooldown |
 | `last_alert_band` | S | Band at the last alert, so an escalation to Do Not Hang can bypass the cooldown |
 | `expires_at` | **N** | Epoch seconds, **TTL attribute** (proposed: started_at + 12 h) |

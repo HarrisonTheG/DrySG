@@ -13,7 +13,7 @@ from drysg.core.models import (
     ScoreResult,
     SessionStatus,
 )
-from drysg.core.scoring import band_for, compute_score
+from drysg.core.scoring import SCORE_METHOD, band_for, compute_score
 
 NOW = datetime.fromisoformat("2026-10-04T14:00:00+08:00")
 
@@ -29,6 +29,7 @@ def make_session(**overrides) -> MonitoringSession:
         "expires_at": NOW + timedelta(hours=11),
         "baseline_score": 85,
         "baseline_band": Band.HANG_NOW,
+        "baseline_method": SCORE_METHOD,
     }
     fields.update(overrides)
     return MonitoringSession(**fields)
@@ -48,6 +49,7 @@ def make_snapshot(
             band=Band.DO_NOT_HANG if veto_reason else band_for(score),
             veto=veto_reason is not None,
             veto_reason=veto_reason,
+            method=SCORE_METHOD,
         ),
         updated_at=at,
     )
@@ -64,6 +66,7 @@ def make_alert(**overrides) -> AlertMessage:
         "new_score": 30,
         "new_band": Band.DO_NOT_HANG,
         "new_veto": True,
+        "new_method": SCORE_METHOD,
         "reason": "Rain detected at nearby station (0.4 mm in last 5 min)",
         "snapshot_ts": NOW,
     }

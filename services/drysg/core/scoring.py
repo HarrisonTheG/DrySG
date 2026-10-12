@@ -21,6 +21,10 @@ from bisect import bisect_right
 from drysg.core.dp_percentiles import DP_PERCENTILES, DP_PERCENTILES_YEAR
 from drysg.core.models import Band, Conditions, PsiLevel, ScoreResult
 
+# Identifies the formula and table behind a score. It changes when the table is rebuilt,
+# so scores from before and after are never compared (see ingestion and alerts).
+SCORE_METHOD = f"dp-percentile-{DP_PERCENTILES_YEAR}"
+
 # --- Bands --------------------------------------------------------------------
 HANG_NOW_MIN = 70
 WAIT_MIN = 50
@@ -171,4 +175,5 @@ def compute_score(conditions: Conditions) -> ScoreResult:
         psi_caution=psi_caution(psi),
         air_quality_warning=psi is not None and psi > PSI_WARNING_ABOVE,
         dp=round(dp, 4),
+        method=SCORE_METHOD,
     )

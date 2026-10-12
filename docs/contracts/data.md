@@ -102,7 +102,8 @@ The OneMap token is configuration owned by the deployment. There is no automatic
 token renewal in this service. See the [official registration guide](https://www.onemap.gov.sg/apidocs/register).
 
 When creating a monitoring session, the API must set `baseline_score`,
-`baseline_band` and `baseline_veto` from the chosen current snapshot. Use
+`baseline_band`, `baseline_veto` and `baseline_method` from the chosen current
+snapshot (`result.method` identifies the scoring method and table). Use
 `drysg.db.items.session_to_item()` / `session_from_item()` for the session's
 database shape, including epoch `expires_at`. The notifier owns subsequent
 baseline updates. Session CRUD and the frontend `/stop` route remain integration

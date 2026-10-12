@@ -34,6 +34,11 @@ def deterioration_reason(session: MonitoringSession, new: ScoreResult) -> str | 
     """Why conditions are worse than the session's baseline, or None if they aren't."""
     if new.veto and not session.baseline_veto:
         return new.veto_reason
+    if session.baseline_method != new.method:
+        # The baseline score came from another scoring method (e.g. before a deploy that
+        # rebuilt the percentile table), so a score or band drop would be an artefact.
+        # Only the rain veto, which means the same under every method, is compared.
+        return None
     if band_worsened(session.baseline_band, new.band):
         return f"Drying conditions dropped from {session.baseline_band} to {new.band}"
     drop = session.baseline_score - new.score
@@ -81,6 +86,7 @@ def decide_alert(
         new_score=new.score,
         new_band=new.band,
         new_veto=new.veto,
+        new_method=new.method,
         reason=reason,
         snapshot_ts=snapshot.updated_at,
     )

@@ -49,6 +49,20 @@ def test_no_repeat_alert_while_rain_continues():
     assert decide_alert(session, make_snapshot(15, veto_reason=RAIN), NOW) is None
 
 
+def test_baseline_from_another_method_only_alerts_on_rain():
+    # The session was baselined before a deploy changed the scoring method.
+    session = make_session(baseline_score=85, baseline_band=Band.HANG_NOW,
+                           baseline_method="weighted-v1")
+    drop = make_snapshot(30)
+    rain = make_snapshot(30, veto_reason=RAIN)
+    for snapshot in (drop, rain):
+        snapshot.result.method = "dp-percentile-2024"
+    assert decide_alert(session, drop, NOW) is None
+    alert = decide_alert(session, rain, NOW)
+    assert alert is not None and alert.reason == RAIN
+    assert alert.new_method == "dp-percentile-2024"  # the notifier re-baselines on it
+
+
 def test_slow_decline_is_caught_against_baseline():
     """Small drops each run never trip a per-run rule, but do vs the session baseline."""
     session = make_session(baseline_score=75, baseline_band=Band.HANG_NOW)
