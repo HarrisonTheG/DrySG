@@ -24,3 +24,11 @@ output "ingest_function_name" {
 output "notifier_function_name" {
   value = aws_lambda_function.notifier.function_name
 }
+
+output "api_function_name" {
+  value = aws_lambda_function.api.function_name
+}
+
+output "api_url" {
+  value = aws_apigatewayv2_api.api.api_endpoint
+}

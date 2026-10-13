@@ -25,6 +25,8 @@ Notifier Lambda ──▶ SES email to the user, logged in AlertLog (dedupe)
 | `lambda_ingest.tf` | Ingest Lambda, its IAM role, 5-minute EventBridge schedule |
 | `lambda_notifier.tf` | Notifier Lambda, its IAM role, SQS trigger |
 | `ses.tf` | Verified sender email for alerts |
+| `lambda_api.tf` | API Lambda and its IAM role |
+| `api_gateway.tf` | HTTP API in front of the API Lambda |
 
 Lambda settings (handlers, timeouts, env vars, IAM) follow [`docs/contracts/handlers.md`](../docs/contracts/handlers.md).
 
