@@ -25,10 +25,12 @@ Notifier Lambda ──▶ SES email to the user, logged in AlertLog (dedupe)
 | `lambda_ingest.tf` | Ingest Lambda, its IAM role, 5-minute EventBridge schedule |
 | `lambda_notifier.tf` | Notifier Lambda, its IAM role, SQS trigger |
 | `ses.tf` | Verified sender email for alerts |
+| `lambda_api.tf` | API Lambda and its IAM role |
+| `api_gateway.tf` | HTTP API in front of the API Lambda |
 
 Lambda settings (handlers, timeouts, env vars, IAM) follow [`docs/contracts/handlers.md`](../docs/contracts/handlers.md).
 
-**Not yet deployed:** the API Lambda + API Gateway (waiting on `services/handlers/api.py`) and web hosting. Until the API exists, no real monitoring sessions are created, so no real alerts are sent.
+**Not yet built:** web hosting, and the API's `/users` and `/laundry-sessions` routes (only `GET /recommendation` exists). Until the session routes exist, no real monitoring sessions are created, so no real alerts are sent.
 
 ## Prerequisites
 - [AWS CLI v2](https://aws.amazon.com/cli/) and [Terraform](https://developer.hashicorp.com/terraform/install) ≥ 1.11
@@ -54,6 +56,8 @@ cd infra
 copy terraform.tfvars.example terraform.tfvars      # macOS/Linux: cp
 ```
 Set `ses_sender` to the **same address the team already uses** (ask the infra owner). `terraform.tfvars` is gitignored. Using a different address would replace the shared SES identity for everyone.
+
+Also set `onemap_token` (see [Renewing the OneMap token](#renewing-the-onemap-token)). It has no default on purpose: if it were empty, any `apply` would wipe the token from the API Lambda and postal code lookups would fail.
 
 ### 3. Initialise Terraform
 ```
@@ -113,6 +117,29 @@ Failed messages end up in the dead-letter queue. It should normally be empty:
 aws sqs get-queue-attributes --queue-url (terraform output -raw alert_dlq_url) --attribute-names ApproximateNumberOfMessages
 ```
 
+### API (recommendation)
+Call it with a postal code that isn't cached yet:
+```
+curl "$(terraform output -raw api_url)/recommendation?postalCode=570150"
+```
+If it returns `503 DATA_UNAVAILABLE`, the OneMap token is probably missing or expired. Check the log:
+```
+aws logs tail /aws/lambda/drysg-dev-api --since 10m
+```
+
+## Renewing the OneMap token
+The API needs a OneMap token to look up postal codes that aren't cached yet. It expires after about 3 days, and nothing renews it automatically. Until someone does, new postal codes return `503` and cached ones still work.
+
+1. Get a new token from your OneMap account.
+2. Put it in `onemap_token` in your `terraform.tfvars`.
+3. Run `terraform plan` and check that only `aws_lambda_function.api` changes.
+4. Run `terraform apply`.
+5. Call `/recommendation` with a postal code you haven't used before (see [Testing](#api-recommendation)).
+
+- Don't change it with `aws lambda update-function-configuration`. That replaces **all** the Lambda's environment variables, so the table names would be lost too.
+- The token is stored in the Terraform state and shows in the Lambda console. Don't share screenshots of either.
+- If two people apply with different tokens, the last apply wins. Agree who renews it.
+
 ## Email (SES) sandbox
 SES starts in **sandbox mode**:
 - It only delivers to **verified** addresses, at about 200 emails/day. Sandbox checks **both** the sender and every recipient.
@@ -136,6 +163,7 @@ Avoid adding anything that bills while idle (NAT Gateway, RDS, EC2). The Lambdas
 |---|---|---|
 | `env` | `dev` | Name prefix (`drysg-<env>-...`) |
 | `ses_sender` | (required, in `terraform.tfvars`) | From address for alert emails |
+| `onemap_token` | (required, in `terraform.tfvars`) | OneMap token for postal code lookups. Expires after about 3 days |
 | `app_base_url` | `http://localhost:5173` | Website URL used in email links. Change it once the web app is hosted |
 | `ingest_schedule_enabled` | `true` | Turns the 5-minute schedule on or off |
 | `ingest_reserved_concurrency` | `1` | Prevents overlapping ingest runs. Use `-1` if the account's concurrency limit is only 10 |
