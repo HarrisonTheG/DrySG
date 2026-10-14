@@ -1,0 +1,8 @@
+{
+  "include": ["."],
+  "exclude": ["**/.venv", "**/__pycache__", ".cache"],
+  "venvPath": ".",
+  "venv": ".venv",
+  "extraPaths": ["."],
+  "pythonVersion": "3.12"
+}

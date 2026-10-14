@@ -7,6 +7,7 @@ from pathlib import Path
 
 import pytest
 
+from drysg.core.scoring import compute_score
 from drysg.data import DataUnavailableError, normalize_weather
 
 FIXTURES = Path(__file__).resolve().parents[1] / "fixtures" / "nea"
@@ -150,8 +151,6 @@ def test_freshness_window_is_configurable(payloads):
 
 @pytest.mark.parametrize("bad_record", ["reading", "station", "batch"])
 def test_one_malformed_record_cannot_hide_valid_rain(payloads, bad_record):
-    from drysg.core.scoring import compute_score
-
     data = payloads["rainfall"]["data"]
     for batch in data["readings"]:
         for reading in batch["data"]:

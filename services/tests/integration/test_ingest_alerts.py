@@ -151,8 +151,8 @@ def test_skipped_area_does_not_alert_using_its_old_snapshot(
     repo.save_all([previous])
     payloads = environment["payloads"]
     forecast = payloads["two-hr-forecast"]
-    payloads.clear()
-    payloads["two-hr-forecast"] = forecast
+    # Without rainfall, only an area that still has a forecast can decide its rain veto.
+    del payloads["rainfall"]
     for item in forecast["data"]["items"]:
         item["forecasts"] = [
             entry for entry in item["forecasts"] if entry["area"] == "Bishan"
