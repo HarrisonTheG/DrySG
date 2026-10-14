@@ -50,6 +50,7 @@ resource "aws_lambda_function" "api" {
     variables = {
       TABLE_AREA_SNAPSHOT = aws_dynamodb_table.area_snapshot.name
       TABLE_POSTAL_CACHE  = aws_dynamodb_table.postal_cache.name
+      ONEMAP_TOKEN        = var.onemap_token
       APP_BASE_URL        = var.app_base_url
       LOG_LEVEL           = "INFO"
     }

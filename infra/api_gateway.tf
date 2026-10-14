@@ -22,6 +22,12 @@ resource "aws_apigatewayv2_stage" "default" {
   api_id      = aws_apigatewayv2_api.api.id
   name        = "$default"
   auto_deploy = true
+
+  # The API has no login, so cap the request rate.
+  default_route_settings {
+    throttling_rate_limit  = 50
+    throttling_burst_limit = 100
+  }
 }
 
 resource "aws_lambda_permission" "api_gateway" {

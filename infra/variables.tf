@@ -25,6 +25,12 @@ variable "ses_sender" {
   type        = string
 }
 
+variable "onemap_token" {
+  description = "Token for the OneMap postal code search. It lasts about 3 days. Set in terraform.tfvars (gitignored)"
+  type        = string
+  sensitive   = true
+}
+
 variable "app_base_url" {
   description = "Frontend URL used in email links (e.g. stop monitoring). CloudFront URL once the web app is hosted"
   type        = string
