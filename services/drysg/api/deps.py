@@ -8,7 +8,8 @@ import httpx
 from botocore.config import Config
 
 from drysg.data import IngestionService, LocationService, NeaClient, OneMapClient
-from drysg.db import AreaSnapshotRepository, PostalCacheRepository
+from drysg.db import AreaSnapshotRepository, PostalCacheRepository, SessionRepository
+from drysg.sessions import SessionService
 
 from .app import ApiDeps, AreaCatalogue, ThrottledRefresh
 
@@ -27,7 +28,9 @@ def build_deps() -> ApiDeps:
         "dynamodb",
         region_name=os.environ.get("AWS_REGION", "ap-southeast-1"),
         config=Config(
-            connect_timeout=3, read_timeout=5, retries={"mode": "standard", "total_max_attempts": 2}
+            connect_timeout=3,
+            read_timeout=5,
+            retries={"mode": "standard", "total_max_attempts": 2},
         ),
     )
     snapshots = AreaSnapshotRepository(dynamodb, _required("TABLE_AREA_SNAPSHOT"))
@@ -35,6 +38,8 @@ def build_deps() -> ApiDeps:
     http = httpx.Client()
     nea_key = os.environ.get("NEA_API_KEY") or None
     onemap_token = os.environ.get("ONEMAP_TOKEN") or None
+    session_table = os.environ.get("TABLE_MONITORING_SESSION", "").strip()
+    user_table = os.environ.get("TABLE_USER", "").strip()
 
     def refresh() -> None:
         IngestionService(NeaClient(http, api_key=nea_key), snapshots).run()
@@ -44,4 +49,9 @@ def build_deps() -> ApiDeps:
         locations=LocationService(OneMapClient(http, token=onemap_token), postals),
         catalogue=AreaCatalogue(snapshots),
         refresh=ThrottledRefresh(refresh),
+        sessions=(
+            SessionService(SessionRepository(dynamodb, session_table, user_table))
+            if session_table and user_table
+            else None
+        ),
     )

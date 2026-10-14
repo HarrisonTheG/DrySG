@@ -11,17 +11,27 @@ from moto import mock_aws
 from drysg.api.app import ApiDeps, AreaCatalogue
 from drysg.api.deps import build_deps
 from drysg.data import LocationService, OneMapClient
-from drysg.db import AreaSnapshotRepository, PostalCacheRepository
+from drysg.db import AreaSnapshotRepository, PostalCacheRepository, SessionRepository
+from drysg.sessions import SessionService
 from handlers import api
 from tests.factories import NOW, make_weather_snapshot
 
 NO_CONTEXT: Any = None  # the handler never reads the Lambda context
 
 
-def http_api_event(path: str, query: str = "", origin: str | None = None) -> dict:
+def http_api_event(
+    path: str,
+    query: str = "",
+    origin: str | None = None,
+    *,
+    method: str = "GET",
+    body: dict | None = None,
+) -> dict:
     headers = {"host": "abc.execute-api.ap-southeast-1.amazonaws.com"}
     if origin:
         headers["origin"] = origin
+    if body is not None:
+        headers["content-type"] = "application/json"
     return {
         "version": "2.0",
         "routeKey": "$default",
@@ -33,7 +43,7 @@ def http_api_event(path: str, query: str = "", origin: str | None = None) -> dic
             "apiId": "abc",
             "domainName": "abc.execute-api.ap-southeast-1.amazonaws.com",
             "http": {
-                "method": "GET",
+                "method": method,
                 "path": path,
                 "protocol": "HTTP/1.1",
                 "sourceIp": "203.0.113.1",
@@ -45,6 +55,7 @@ def http_api_event(path: str, query: str = "", origin: str | None = None) -> dic
             "timeEpoch": 1791763200000,
         },
         "isBase64Encoded": False,
+        "body": None if body is None else json.dumps(body),
     }
 
 
@@ -67,7 +78,12 @@ def deps():
             aws_access_key_id="testing",
             aws_secret_access_key="testing",
         )
-        for name, key in (("snapshots", "area"), ("postals", "postal_code")):
+        for name, key in (
+            ("snapshots", "area"),
+            ("postals", "postal_code"),
+            ("sessions", "session_id"),
+            ("users", "email"),
+        ):
             dynamodb.create_table(
                 TableName=name,
                 BillingMode="PAY_PER_REQUEST",
@@ -75,15 +91,20 @@ def deps():
                 AttributeDefinitions=[{"AttributeName": key, "AttributeType": "S"}],
             )
         snapshots = AreaSnapshotRepository(dynamodb, "snapshots")
+        dynamodb.Table("users").put_item(
+            Item={"email": "user@example.com", "verified": True}
+        )
         snapshots.save_all([make_weather_snapshot("Bishan")])
         http = httpx.Client(transport=httpx.MockTransport(onemap))
         yield ApiDeps(
             snapshots=snapshots,
             locations=LocationService(
-                OneMapClient(http, token="token"), PostalCacheRepository(dynamodb, "postals")
+                OneMapClient(http, token="token"),
+                PostalCacheRepository(dynamodb, "postals"),
             ),
             catalogue=AreaCatalogue(snapshots),
             clock=lambda: NOW,
+            sessions=SessionService(SessionRepository(dynamodb, "sessions", "users")),
         )
 
 
@@ -95,7 +116,9 @@ def _override(deps):
 
 
 def test_recommendation_through_api_gateway_event():
-    response = api.handler(http_api_event("/recommendation", "postalCode=570150"), NO_CONTEXT)
+    response = api.handler(
+        http_api_event("/recommendation", "postalCode=570150"), NO_CONTEXT
+    )
     assert response["statusCode"] == 200
     body = json.loads(response["body"])
     assert (body["postalCode"], body["areaName"]) == ("570150", "Bishan")
@@ -103,7 +126,9 @@ def test_recommendation_through_api_gateway_event():
 
 
 def test_validation_error_through_api_gateway_event():
-    response = api.handler(http_api_event("/recommendation", "postalCode=12"), NO_CONTEXT)
+    response = api.handler(
+        http_api_event("/recommendation", "postalCode=12"), NO_CONTEXT
+    )
     assert response["statusCode"] == 400
     assert json.loads(response["body"])["error"]["code"] == "INVALID_POSTAL_CODE"
 
@@ -115,4 +140,27 @@ def test_deployed_app_does_not_publish_docs():
 
 def test_health_through_api_gateway_event():
     response = api.handler(http_api_event("/health"), NO_CONTEXT)
-    assert (response["statusCode"], json.loads(response["body"])) == (200, {"status": "ok"})
+    assert (response["statusCode"], json.loads(response["body"])) == (
+        200,
+        {"status": "ok"},
+    )
+
+
+def test_session_lifecycle_through_api_gateway_events():
+    response = api.handler(
+        http_api_event(
+            "/laundry-sessions",
+            method="POST",
+            body={"email": "user@example.com", "postalCode": "570150"},
+        ),
+        NO_CONTEXT,
+    )
+    assert response["statusCode"] == 201
+    body = json.loads(response["body"])
+    path = f"/laundry-sessions/{body['id']}"
+    fetched = api.handler(http_api_event(path), NO_CONTEXT)
+    assert fetched["statusCode"] == 200
+    assert json.loads(fetched["body"]) == body
+    stopped = api.handler(http_api_event(path, method="DELETE"), NO_CONTEXT)
+    assert stopped["statusCode"] == 200
+    assert json.loads(stopped["body"]) == {**body, "active": False}

@@ -6,7 +6,11 @@ Field names are camelCase on purpose: they are the JSON the frontend reads.
 from enum import StrEnum
 from typing import Literal
 
-from pydantic import BaseModel
+from pydantic import BaseModel, Field, field_validator
+
+from drysg.core.locations import POSTAL_CODE_PATTERN
+from drysg.data.clients import validate_postal_code
+from drysg.sessions import normalize_email
 
 
 class RecommendationState(StrEnum):
@@ -65,3 +69,32 @@ class ErrorBody(BaseModel):
 
 class ApiError(BaseModel):
     error: ErrorBody
+
+
+class StartLaundrySession(BaseModel):
+    """Start monitoring for a verified email and a six-digit postal code."""
+
+    email: str = Field(json_schema_extra={"format": "email"})
+    postalCode: str = Field(pattern=POSTAL_CODE_PATTERN)
+
+    @field_validator("email", mode="before")
+    @classmethod
+    def validate_email(cls, value: str) -> str:
+        """Use the same normalized email key as the session service."""
+        return normalize_email(value)
+
+    @field_validator("postalCode", mode="before")
+    @classmethod
+    def validate_postal(cls, value: str) -> str:
+        """Preserve leading zeroes and reject non-string postal codes."""
+        return validate_postal_code(value)
+
+
+class LaundrySession(BaseModel):
+    """Public session state; never includes the email or alert baseline."""
+
+    id: str = Field(json_schema_extra={"format": "uuid"})
+    postalCode: str
+    startedAt: str = Field(json_schema_extra={"format": "date-time"})
+    expiresAt: str = Field(json_schema_extra={"format": "date-time"})
+    active: bool

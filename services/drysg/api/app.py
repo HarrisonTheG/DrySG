@@ -1,6 +1,6 @@
 """FastAPI app for the DrySG API Lambda (served by Mangum, or uvicorn locally).
 
-Only `GET /recommendation` exists so far. The app takes a dependency factory so the
+Recommendation and laundry-session routes share a dependency factory so the
 Lambda can build AWS/HTTP clients lazily (once per container) and tests can inject fakes.
 """
 
@@ -14,7 +14,9 @@ from datetime import UTC, datetime, timedelta
 from typing import Annotated
 
 from botocore.exceptions import BotoCoreError, ClientError
-from fastapi import Depends, FastAPI, Query, Request
+from fastapi import Depends, FastAPI, Path, Query, Request
+from fastapi.exception_handlers import request_validation_exception_handler
+from fastapi.exceptions import RequestValidationError
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 
@@ -26,10 +28,24 @@ from drysg.data import (
     PostalCodeNotFoundError,
     UpstreamError,
 )
-from drysg.db import AreaSnapshotRepository
+from drysg.db import AreaSnapshotRepository, ConcurrentSessionUpdateError
+from drysg.sessions import (
+    EmailNotVerifiedError,
+    InvalidEmailError,
+    InvalidSessionIdError,
+    SessionNotFoundError,
+    SessionService,
+)
 
-from .models import ApiError, DryingRecommendation, ErrorBody
+from .models import (
+    ApiError,
+    DryingRecommendation,
+    ErrorBody,
+    LaundrySession,
+    StartLaundrySession,
+)
 from .recommendation import SnapshotIncompleteError, to_recommendation
+from .sessions import to_laundry_session
 
 logger = logging.getLogger(__name__)
 
@@ -37,7 +53,12 @@ logger = logging.getLogger(__name__)
 SNAPSHOT_MAX_AGE = timedelta(minutes=30)
 CATALOGUE_TTL_S = 3600.0
 # Failures of the cold-start refresh that mean "no data right now" (503), not a bug (500).
-REFRESH_UNAVAILABLE_ERRORS = (UpstreamError, DataUnavailableError, ClientError, BotoCoreError)
+REFRESH_UNAVAILABLE_ERRORS = (
+    UpstreamError,
+    DataUnavailableError,
+    ClientError,
+    BotoCoreError,
+)
 
 
 class ApiProblem(Exception):
@@ -97,9 +118,13 @@ class ThrottledRefresh:
         with self._lock:
             now = self._clock()
             if self._last is not None and now - self._last < self._min_interval_s:
-                logger.info("Skipping refresh: last one was %.0fs ago", now - self._last)
+                logger.info(
+                    "Skipping refresh: last one was %.0fs ago", now - self._last
+                )
                 return
-            self._last = now  # set first so a failing refresh is not retried in a tight loop
+            self._last = (
+                now  # set first so a failing refresh is not retried in a tight loop
+            )
             self._refresh()
 
 
@@ -111,6 +136,7 @@ class ApiDeps:
     # Cold-start fallback: run one NEA refresh when no snapshot exists. None disables it.
     refresh: Callable[[], None] | None = None
     clock: Callable[[], datetime] = lambda: datetime.now(UTC)
+    sessions: SessionService | None = None
 
 
 def _fresh_snapshot(deps: ApiDeps, area: str) -> AreaSnapshot:
@@ -149,7 +175,9 @@ def _resolve_area(deps: ApiDeps, postal_code: str) -> str:
         ) from exc
     except (UpstreamError, DataUnavailableError) as exc:
         logger.warning("Postal lookup unavailable: %s", exc)
-        raise ApiProblem(503, "DATA_UNAVAILABLE", "Postal code lookup is unavailable") from exc
+        raise ApiProblem(
+            503, "DATA_UNAVAILABLE", "Postal code lookup is unavailable"
+        ) from exc
 
 
 def create_app(
@@ -165,6 +193,7 @@ def create_app(
         redoc_url=None,
         openapi_url="/openapi.json" if enable_docs else None,
     )
+
     def error_response(status: int, code: str, message: str) -> JSONResponse:
         body = ApiError(error=ErrorBody(code=code, message=message))
         return JSONResponse(status_code=status, content=body.model_dump())
@@ -172,6 +201,40 @@ def create_app(
     @app.exception_handler(ApiProblem)
     async def handle_problem(_: Request, exc: ApiProblem) -> JSONResponse:
         return error_response(exc.status, exc.code, exc.message)
+
+    session_errors = {
+        InvalidEmailError: (400, "INVALID_EMAIL"),
+        InvalidSessionIdError: (400, "INVALID_SESSION_ID"),
+        EmailNotVerifiedError: (403, "EMAIL_NOT_VERIFIED"),
+        SessionNotFoundError: (404, "SESSION_NOT_FOUND"),
+        ConcurrentSessionUpdateError: (409, "SESSION_CONFLICT"),
+    }
+
+    async def handle_session_error(_: Request, exc: Exception) -> JSONResponse:
+        status, code = session_errors[type(exc)]
+        return error_response(status, code, str(exc))
+
+    for exception in session_errors:
+        app.add_exception_handler(exception, handle_session_error)
+
+    @app.exception_handler(RequestValidationError)
+    async def handle_validation(
+        request: Request, exc: RequestValidationError
+    ) -> JSONResponse:
+        if request.url.path != "/laundry-sessions":
+            return await request_validation_exception_handler(request, exc)
+        fields = {error["loc"][-1] for error in exc.errors()}
+        if "email" in fields:
+            return error_response(
+                400, "INVALID_EMAIL", "email must be a valid email address"
+            )
+        if "postalCode" in fields:
+            return error_response(
+                400, "INVALID_POSTAL_CODE", "postalCode must be six digits"
+            )
+        return error_response(
+            400, "INVALID_REQUEST", "A JSON email and postalCode are required"
+        )
 
     # Unexpected errors are caught in a middleware rather than an Exception handler:
     # Starlette runs Exception handlers outside every middleware, so their 500s would
@@ -196,7 +259,11 @@ def create_app(
     @app.get(
         "/recommendation",
         response_model=DryingRecommendation,
-        responses={400: {"model": ApiError}, 404: {"model": ApiError}, 503: {"model": ApiError}},
+        responses={
+            400: {"model": ApiError},
+            404: {"model": ApiError},
+            503: {"model": ApiError},
+        },
     )
     def get_recommendation(
         deps: Annotated[ApiDeps, Depends(get_deps)],
@@ -213,7 +280,67 @@ def create_app(
         try:
             return to_recommendation(_fresh_snapshot(deps, area), code)
         except SnapshotIncompleteError as exc:
-            raise ApiProblem(503, "DATA_UNAVAILABLE", "Weather data is being refreshed") from exc
+            raise ApiProblem(
+                503, "DATA_UNAVAILABLE", "Weather data is being refreshed"
+            ) from exc
+
+    def session_service(deps: ApiDeps) -> SessionService:
+        if deps.sessions is None:
+            raise ApiProblem(503, "DATA_UNAVAILABLE", "Monitoring is not configured")
+        return deps.sessions
+
+    @app.post(
+        "/laundry-sessions",
+        status_code=201,
+        response_model=LaundrySession,
+        responses={status: {"model": ApiError} for status in (400, 403, 404, 409, 503)},
+    )
+    def start_laundry_session(
+        body: StartLaundrySession, deps: Annotated[ApiDeps, Depends(get_deps)]
+    ) -> LaundrySession:
+        """Start monitoring using the same postal lookup and snapshot as recommendation."""
+        now = deps.clock()
+        try:
+            session = session_service(deps).start(
+                body.email,
+                body.postalCode,
+                now=now,
+                snapshot_for_postal=lambda code: _fresh_snapshot(
+                    deps, _resolve_area(deps, code)
+                ),
+            )
+        except DataUnavailableError as exc:
+            raise ApiProblem(503, "DATA_UNAVAILABLE", str(exc)) from exc
+        return to_laundry_session(session, now)
+
+    @app.get(
+        "/laundry-sessions/{id}",
+        response_model=LaundrySession,
+        responses={status: {"model": ApiError} for status in (400, 404, 503)},
+    )
+    def get_laundry_session(
+        session_id: Annotated[
+            str, Path(alias="id", json_schema_extra={"format": "uuid"})
+        ],
+        deps: Annotated[ApiDeps, Depends(get_deps)],
+    ) -> LaundrySession:
+        """Read monitoring state without exposing the user's email."""
+        return to_laundry_session(session_service(deps).get(session_id), deps.clock())
+
+    @app.delete(
+        "/laundry-sessions/{id}",
+        response_model=LaundrySession,
+        responses={status: {"model": ApiError} for status in (400, 404, 503)},
+    )
+    def stop_laundry_session(
+        session_id: Annotated[
+            str, Path(alias="id", json_schema_extra={"format": "uuid"})
+        ],
+        deps: Annotated[ApiDeps, Depends(get_deps)],
+    ) -> LaundrySession:
+        """Stop monitoring; repeated requests return the same inactive state."""
+        now = deps.clock()
+        return to_laundry_session(session_service(deps).stop(session_id, now=now), now)
 
     @app.get("/health", include_in_schema=False)
     def health() -> dict[str, str]:

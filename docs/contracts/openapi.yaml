@@ -14,8 +14,8 @@ info:
     snake_case; the API layer maps between them. Scoring method and full contract:
     lambda-backend.md.
 
-    Implementation status: `GET /recommendation` is implemented. `/users`, `/users/verify`
-    and the `/laundry-sessions` routes are specified but not built yet.
+    Implementation status: recommendation and laundry-session routes are implemented.
+    `/users` and `/users/verify` are specified but not built yet.
 servers:
   - url: http://localhost:8000
     description: Local FastAPI (uvicorn), see services/scripts/run_api_local.py
@@ -110,7 +110,10 @@ paths:
       summary: Start monitoring (laundry is now hanging outside)
       description: |
         Requires a verified email. Only one active session per email; starting a new
-        one stops the previous. Sessions auto-expire after `expiresAt`.
+        one atomically stops the previous. Sessions expire after 12 hours; API
+        timestamps use whole seconds to match the DynamoDB TTL. The user row tracks
+        active_session_id so concurrent requests cannot create two active sessions.
+        The baseline snapshot must use the current scoring method.
       operationId: startLaundrySession
       requestBody:
         required: true
@@ -135,6 +138,12 @@ paths:
             application/json:
               schema: { $ref: '#/components/schemas/Error' }
         '404': { $ref: '#/components/responses/NotFound' }
+        '409':
+          description: Concurrent session changes exhausted retries; try again
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Error' }
+        '503': { $ref: '#/components/responses/Unavailable' }
 
   /laundry-sessions/{id}:
     parameters:
@@ -152,7 +161,9 @@ paths:
           content:
             application/json:
               schema: { $ref: '#/components/schemas/LaundrySession' }
+        '400': { $ref: '#/components/responses/BadRequest' }
         '404': { $ref: '#/components/responses/NotFound' }
+        '503': { $ref: '#/components/responses/Unavailable' }
     delete:
       summary: Stop monitoring (laundry brought in)
       description: Idempotent. Stopping an already stopped/expired session returns 200.
@@ -163,7 +174,9 @@ paths:
           content:
             application/json:
               schema: { $ref: '#/components/schemas/LaundrySession' }
+        '400': { $ref: '#/components/responses/BadRequest' }
         '404': { $ref: '#/components/responses/NotFound' }
+        '503': { $ref: '#/components/responses/Unavailable' }
 
 components:
   responses:
@@ -198,10 +211,12 @@ components:
                 - INVALID_POSTAL_CODE
                 - POSTAL_CODE_NOT_FOUND
                 - INVALID_EMAIL
+                - INVALID_REQUEST
                 - INVALID_TOKEN
                 - INVALID_SESSION_ID
                 - EMAIL_NOT_VERIFIED
                 - SESSION_NOT_FOUND
+                - SESSION_CONFLICT
                 - DATA_UNAVAILABLE
                 - INTERNAL_ERROR
             message: { type: string }
