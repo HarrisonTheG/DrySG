@@ -1,25 +1,27 @@
 {
-  "postalCode": "570150",
-  "areaName": "Bishan",
-  "score": 22,
+  "postalCode": "530123",
+  "areaName": "Hougang",
+  "score": 38,
   "recommendation": "DO_NOT_HANG",
-  "summary": "Rain detected at nearby station (1.2 mm in last 5 min).",
-  "updatedAt": "2026-10-04T15:40:00+08:00",
+  "summary": "Rain detected at nearby station (0.6 mm in last 5 min). Do not hang.",
+  "percentileDescription": null,
+  "updatedAt": "2026-10-04T12:35:00+08:00",
   "conditions": {
-    "rainfallMm": 1.2,
-    "temperatureC": 27.0,
-    "humidityPercent": 91.0,
-    "windSpeedMs": 5.0,
-    "forecast": "Thundery Showers",
-    "psi": 55,
-    "psiBand": "Moderate"
+    "rainfallMm": 0.6,
+    "temperatureC": 29.0,
+    "humidityPercent": 82.0,
+    "windSpeedMs": 1.5,
+    "forecast": "Fair (Day)",
+    "psi": 48.0,
+    "psiBand": "Good"
   },
   "rainVeto": true,
   "airQualityWarning": false,
   "stationSources": {
-    "rainfall": "S120",
+    "rainfall": "S07",
     "humidity": "S109",
-    "temperature": "S109",
-    "wind": "S109"
-  }
+    "temperature": "S24",
+    "wind": "S81"
+  },
+  "degraded": false
 }

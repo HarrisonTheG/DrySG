@@ -118,6 +118,7 @@ class TestNotifier:
             Band.DO_NOT_HANG,
             True,
         )
+        assert stored.baseline_method == alert.new_method
         assert stored.last_alert_at == NOW
         assert stored.last_alert_band is Band.DO_NOT_HANG
 

@@ -11,10 +11,14 @@ info:
 
     Response bodies use camelCase and match the frontend TypeScript types
     (`DryingRecommendation`, `LaundrySession`, ...). The Python core models stay
-    snake_case; the API layer maps between them.
+    snake_case; the API layer maps between them. Scoring method and full contract:
+    lambda-backend.md.
+
+    Implementation status: `GET /recommendation` is implemented. `/users`, `/users/verify`
+    and the `/laundry-sessions` routes are specified but not built yet.
 servers:
   - url: http://localhost:8000
-    description: Local FastAPI (uvicorn)
+    description: Local FastAPI (uvicorn), see services/scripts/run_api_local.py
   - url: https://{apiId}.execute-api.ap-southeast-1.amazonaws.com
     description: AWS (filled in by IaC)
     variables:
@@ -28,7 +32,13 @@ paths:
       description: |
         Resolves the postal code to its nearest NEA forecast area and returns the
         latest cached snapshot. Never calls NEA directly on the request path unless
-        no snapshot exists for the area (cold start fallback).
+        no snapshot exists for the area (cold start fallback). A snapshot older than
+        30 minutes is treated as unavailable (503).
+
+        The recommendation is decided in two steps: a rain veto (rain at the nearest
+        station, or rain words in the 2-hour forecast) forces `DO_NOT_HANG`; otherwise
+        the score decides (70-100 `HANG_NOW`, 50-69 `WAIT`, below 50 `DO_NOT_HANG`).
+        PSI above 100 sets `airQualityWarning` and never changes the recommendation.
       operationId: getRecommendation
       parameters:
         - name: postalCode
@@ -168,7 +178,7 @@ components:
         application/json:
           schema: { $ref: '#/components/schemas/Error' }
     Unavailable:
-      description: Weather data temporarily unavailable
+      description: Weather or postal data temporarily unavailable
       content:
         application/json:
           schema: { $ref: '#/components/schemas/Error' }
@@ -189,6 +199,7 @@ components:
                 - POSTAL_CODE_NOT_FOUND
                 - INVALID_EMAIL
                 - INVALID_TOKEN
+                - INVALID_SESSION_ID
                 - EMAIL_NOT_VERIFIED
                 - SESSION_NOT_FOUND
                 - DATA_UNAVAILABLE
@@ -200,15 +211,13 @@ components:
       enum: [HANG_NOW, WAIT, DO_NOT_HANG]
       description: Maps from the core `Band` ("Hang Now" / "Wait" / "Do Not Hang").
 
-    PsiBand:
-      type: string
-      enum: [Good, Moderate, Unhealthy, Very Unhealthy, Hazardous]
-
     WeatherConditions:
       type: object
       description: |
-        Current inputs for display. A value is null when its station or feed is
-        unavailable (the score is then computed from the remaining inputs).
+        Current inputs for display. A value is null when its feed was unavailable. A
+        missing temperature, humidity or wind reading is scored with its historical
+        median (`degraded` is then true) but still shown as null. Rain is decided from
+        whichever of rainfall and forecast is available.
       required: [rainfallMm, temperatureC, humidityPercent, windSpeedMs, forecast, psi, psiBand]
       properties:
         rainfallMm: { type: number, nullable: true, description: 5-minute rainfall total at the nearest station }
@@ -221,9 +230,9 @@ components:
         forecast: { type: string, nullable: true, example: Partly Cloudy (Day), description: NEA 2-hour forecast text for the area }
         psi: { type: number, nullable: true, description: 24-hour PSI for the area's region }
         psiBand:
-          allOf:
-            - $ref: '#/components/schemas/PsiBand'
+          type: string
           nullable: true
+          enum: [Good, Moderate, Unhealthy, Very Unhealthy, Hazardous, null]
 
     StationSources:
       type: object
@@ -244,14 +253,22 @@ components:
       properties:
         postalCode: { type: string, example: '530123' }
         areaName: { type: string, example: Hougang, description: NEA forecast area nearest the postal code }
-        score: { type: integer, minimum: 0, maximum: 100 }
+        score:
+          type: integer
+          minimum: 0
+          maximum: 100
+          description: |
+            Percentile of the current Drying Potential (temperature, humidity, wind) within
+            historical Singapore dry-weather readings. Still returned when a rain veto applies.
         recommendation: { $ref: '#/components/schemas/RecommendationState' }
         summary:
           type: string
-          description: One-line human-readable explanation, e.g. the rain veto reason or the main limiting factor.
+          description: One-line human-readable explanation, e.g. the rain veto reason. Adds an air-quality sentence when PSI is above 100.
         percentileDescription:
           type: string
-          description: Optional. Wording TBD by the team (e.g. how today compares with typical conditions).
+          nullable: true
+          description: How today compares with historical conditions. Null when a rain veto applies.
+          example: Drier than 82% of Singapore dry-weather readings in 2024
         updatedAt: { type: string, format: date-time, description: When the area snapshot was computed }
         conditions: { $ref: '#/components/schemas/WeatherConditions' }
         rainVeto: { type: boolean, description: True if rain is detected or forecast; recommendation is then DO_NOT_HANG }
@@ -259,6 +276,12 @@ components:
           type: boolean
           description: True when psiBand is Unhealthy or worse (PSI > 100). Shown separately; never affects the score.
         stationSources: { $ref: '#/components/schemas/StationSources' }
+        degraded:
+          type: boolean
+          default: false
+          description: |
+            True when a temperature, humidity or wind feed was missing and its historical
+            median was used instead, so the score is an estimate. `summary` says so too.
 
     UserStatus:
       type: object

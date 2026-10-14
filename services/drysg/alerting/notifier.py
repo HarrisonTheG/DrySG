@@ -107,7 +107,7 @@ def _advance_baseline(deps: NotifierDeps, msg: AlertMessage, now: datetime) -> b
             Key={"session_id": msg.session_id},
             UpdateExpression=(
                 "SET baseline_score = :score, baseline_band = :band, baseline_veto = :veto, "
-                "last_alert_at = :now, last_alert_band = :band"
+                "baseline_method = :method, last_alert_at = :now, last_alert_band = :band"
             ),
             ConditionExpression="#s = :active AND expires_at > :now_epoch",
             ExpressionAttributeNames={"#s": "status"},
@@ -115,6 +115,7 @@ def _advance_baseline(deps: NotifierDeps, msg: AlertMessage, now: datetime) -> b
                 ":score": msg.new_score,
                 ":band": msg.new_band,
                 ":veto": msg.new_veto,
+                ":method": msg.new_method,
                 ":now": now.isoformat(),
                 ":active": SessionStatus.ACTIVE,
                 ":now_epoch": to_epoch(now),

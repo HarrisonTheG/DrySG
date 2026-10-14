@@ -1,25 +1,27 @@
 {
   "postalCode": "530123",
   "areaName": "Hougang",
-  "score": 80,
+  "score": 90,
   "recommendation": "HANG_NOW",
-  "summary": "Good drying conditions: fair weather and a light breeze.",
+  "summary": "Good drying conditions. A good time to hang laundry.",
+  "percentileDescription": "Drier than 90% of Singapore dry-weather readings in 2024",
   "updatedAt": "2026-10-04T12:35:00+08:00",
   "conditions": {
-    "rainfallMm": 0,
+    "rainfallMm": 0.0,
     "temperatureC": 31.0,
-    "humidityPercent": 74.5,
-    "windSpeedMs": 2.2,
+    "humidityPercent": 60.0,
+    "windSpeedMs": 2.6,
     "forecast": "Fair (Day)",
-    "psi": 48,
+    "psi": 48.0,
     "psiBand": "Good"
   },
   "rainVeto": false,
   "airQualityWarning": false,
   "stationSources": {
-    "rainfall": "S69",
-    "humidity": "S43",
-    "temperature": "S43",
-    "wind": "S43"
-  }
+    "rainfall": "S07",
+    "humidity": "S109",
+    "temperature": "S24",
+    "wind": "S81"
+  },
+  "degraded": false
 }

@@ -50,8 +50,8 @@ class Forecast(BaseModel):
 class Conditions(BaseModel):
     """Fused environmental conditions for one forecast area.
 
-    Any field may be None when the upstream source is missing or stale;
-    scoring redistributes weight and flags the result as degraded.
+    Any field may be None when the upstream source is missing or stale. Scoring needs
+    temperature, humidity and wind, plus rainfall or a forecast for the rain veto.
     """
 
     rainfall_mm: Reading | None = None  # 5-minute rainfall total at nearest station
@@ -62,23 +62,33 @@ class Conditions(BaseModel):
     psi: Reading | None = None  # 24-hour PSI for the area's region
 
 
-class SubScores(BaseModel):
-    """Per-factor scores, each 0-100. None when the input was missing."""
-
-    rain: float | None = None
-    humidity: float | None = None
-    wind: float | None = None
-    temperature: float | None = None
-
-
 class ScoreResult(BaseModel):
-    score: int = Field(ge=0, le=100)
+    score: int = Field(ge=0, le=100, description="Percentile of drying potential, 0-100")
     band: Band
-    sub_scores: SubScores
     veto: bool = False
     veto_reason: str | None = None
     psi_caution: PsiLevel | None = None
-    degraded: bool = Field(default=False, description="True if any scoring input was missing")
+    air_quality_warning: bool = Field(
+        default=False, description="True when PSI is Unhealthy or worse (> 100)"
+    )
+    dp: float | None = Field(
+        default=None, description="Drying potential (Penman aerodynamic term) behind the score"
+    )
+    degraded: bool = Field(
+        default=False,
+        description="True if a missing input was replaced by its historical median",
+    )
+    estimated_inputs: list[str] = Field(
+        default_factory=list,
+        description="Inputs replaced by their historical median: temp_c, humidity_pct, wind_knots",
+    )
+    method: str | None = Field(
+        default=None,
+        description=(
+            "Scoring method and table that produced `score`, e.g. 'dp-percentile-2024'. "
+            "Scores from different methods are not comparable. None: written by older code."
+        ),
+    )
 
 
 class AreaSnapshot(BaseModel):
@@ -120,6 +130,7 @@ class MonitoringSession(BaseModel):
     baseline_score: int
     baseline_band: Band
     baseline_veto: bool = False
+    baseline_method: str | None = None  # ScoreResult.method of the baseline score
     last_alert_at: datetime | None = None
     last_alert_band: Band | None = None
 
@@ -136,5 +147,6 @@ class AlertMessage(BaseModel):
     new_score: int
     new_band: Band
     new_veto: bool = False
+    new_method: str | None = None  # ScoreResult.method of new_score
     reason: str = Field(description="Human-readable cause, e.g. 'Rain detected nearby'")
     snapshot_ts: datetime
