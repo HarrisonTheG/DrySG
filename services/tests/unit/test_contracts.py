@@ -115,7 +115,9 @@ def test_alert_message_example_in_handlers_doc_parses():
 
 AT = datetime.fromisoformat("2026-10-04T12:35:00+08:00")
 MOCK_SCENARIOS = {
-    "recommendation_hang_now.json": dict(temp=31.0, humidity=60.0, wind_knots=5.0, psi=48),
+    "recommendation_hang_now.json": dict(
+        temp=31.0, humidity=60.0, wind_knots=5.0, psi=48
+    ),
     "recommendation_wait_psi_caution.json": dict(
         temp=29.5, humidity=75.0, wind_knots=4.0, psi=132
     ),
@@ -127,7 +129,9 @@ MOCK_SCENARIOS = {
 
 def _validator(spec: dict, schema: str) -> Any:
     registry = Registry().with_resource("urn:drysg", Resource.opaque(spec))
-    return OAS30Validator({"$ref": f"urn:drysg#/components/schemas/{schema}"}, registry=registry)
+    return OAS30Validator(
+        {"$ref": f"urn:drysg#/components/schemas/{schema}"}, registry=registry
+    )
 
 
 def _recommendation(**conditions) -> dict:
@@ -172,15 +176,31 @@ def test_generated_openapi_matches_the_contract_file(spec):
     generated = app.openapi()
     documented_params = spec["paths"]["/recommendation"]["get"]["parameters"]
     generated_params = generated["paths"]["/recommendation"]["get"]["parameters"]
-    assert [p["name"] for p in generated_params] == [p["name"] for p in documented_params]
+    assert [p["name"] for p in generated_params] == [
+        p["name"] for p in documented_params
+    ]
 
-    for name in ("DryingRecommendation", "WeatherConditions", "StationSources"):
+    for name in (
+        "DryingRecommendation",
+        "WeatherConditions",
+        "StationSources",
+        "LaundrySession",
+    ):
         assert set(generated["components"]["schemas"][name]["properties"]) == set(
             spec["components"]["schemas"][name]["properties"]
         ), name
-    assert set(generated["components"]["schemas"]["RecommendationState"]["enum"]) == set(
-        spec["components"]["schemas"]["RecommendationState"]["enum"]
-    )
+    assert set(
+        generated["components"]["schemas"]["RecommendationState"]["enum"]
+    ) == set(spec["components"]["schemas"]["RecommendationState"]["enum"])
+    for path, method, status in (
+        ("/laundry-sessions", "post", "201"),
+        ("/laundry-sessions/{id}", "get", "200"),
+        ("/laundry-sessions/{id}", "delete", "200"),
+    ):
+        response = generated["paths"][path][method]["responses"][status]
+        assert response["content"]["application/json"]["schema"]["$ref"].endswith(
+            "/LaundrySession"
+        )
 
 
 def test_error_codes_used_by_the_api_are_in_the_spec(spec):
@@ -188,5 +208,9 @@ def test_error_codes_used_by_the_api_are_in_the_spec(spec):
     documented = set(error["properties"]["code"]["enum"])
     source = (REPO / "services" / "drysg" / "api" / "app.py").read_text()
     used = set(re.findall(r'"([A-Z_]{6,})"', source))
-    codes = {c for c in used if c.endswith(("_POSTAL_CODE", "_FOUND", "_UNAVAILABLE", "_ERROR"))}
+    codes = {
+        c
+        for c in used
+        if c.endswith(("_POSTAL_CODE", "_FOUND", "_UNAVAILABLE", "_ERROR"))
+    }
     assert codes <= documented

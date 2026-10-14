@@ -1,7 +1,8 @@
 # Lambda Backend Contract (REST API + scoring)
 
-Status: `GET /recommendation` is **implemented**; the session and user routes are specified but
-not built (see section 9). This is the frontend/backend contract for the API Lambda
+Status: `GET /recommendation` and the three session routes are **implemented**; user
+registration/verification routes are still specified but not built (see section 9).
+This is the frontend/backend contract for the API Lambda
 (`handlers.api.handler`, API Gateway HTTP API proxy). [openapi.yaml](openapi.yaml) and the
 examples in [mocks/](mocks/) follow it, and `tests/unit/test_contracts.py` checks that the
 code's real responses and generated schema match them. Section 6 lists what changed from the
@@ -30,12 +31,17 @@ All JSON is `camelCase`. All timestamps are ISO 8601 with the Singapore offset (
 ```json
 { "postalCode": "120123", "email": "user@example.com" }
 ```
-- Requires a verified email (verification flow unchanged: `POST /users`, `POST /users/verify`).
-- One active session per email: starting a new one stops the previous one.
+- Requires `User.verified = true`; missing/unverified users return `403 EMAIL_NOT_VERIFIED`.
+  `POST /users` and `POST /users/verify` remain unimplemented. SES identity verification
+  is separate from application verification. The local runner seeds a mock verified user.
+- One active session per email: starting a new one atomically stops the previous one,
+  using a conditional pointer on User (see [dynamodb.md](dynamodb.md)).
 - Sets the session's `baseline_score`, `baseline_band`, `baseline_veto` and `baseline_method`
   from the current snapshot's `result` (`score`, `band`, `veto`, `method`). The alert trigger
   compares against these, and only compares scores when the methods match.
-- Sessions expire **12 hours** after `startedAt`.
+- Sessions expire **12 hours** after `startedAt`, with whole-second timestamps.
+- An unavailable/stale snapshot or an obsolete scoring method returns `503`, preserving
+  any existing session. Email and postal-code whitespace is trimmed; emails are lowercase.
 
 ### GET /laundry-sessions/{id}
 Returns the `LaundrySession`. `active` is `false` once stopped or past `expiresAt`. The current
@@ -60,10 +66,12 @@ interface ApiError {
 |---|---|---|
 | 400 | `INVALID_POSTAL_CODE` | Missing or not six digits |
 | 400 | `INVALID_EMAIL` | Malformed email |
+| 400 | `INVALID_REQUEST` | Missing or malformed JSON request body |
 | 400 | `INVALID_SESSION_ID` | `id` is not a UUID |
 | 403 | `EMAIL_NOT_VERIFIED` | POST session for an unverified email |
 | 404 | `POSTAL_CODE_NOT_FOUND` | OneMap has no exact match |
 | 404 | `SESSION_NOT_FOUND` | Unknown `id` |
+| 409 | `SESSION_CONFLICT` | Concurrent starts exhausted retries; try again |
 | 503 | `DATA_UNAVAILABLE` | OneMap/NEA unavailable, cold start with no data, stale snapshot |
 | 500 | `INTERNAL_ERROR` | Anything else (logged, details not leaked) |
 
@@ -334,14 +342,17 @@ unaffected.
 
 ## 9. Implementation status
 
-Implemented: `GET /recommendation` and `GET /health`.
+Implemented: `GET /recommendation`, `GET /health`, and `POST/GET/DELETE /laundry-sessions`.
 - Code: `services/drysg/api/` (`app.py` FastAPI app, `recommendation.py` snapshot-to-response
   mapping, `models.py` response models, `deps.py` environment wiring) and the Lambda entry
   point `services/handlers/api.py` (Mangum). Tests: `services/tests/unit/test_api_recommendation.py`.
 - Run locally with live NEA and OneMap data and in-memory DynamoDB (needs `ONEMAP_TOKEN` in
   `services/.env`): `cd services && .venv/bin/python scripts/run_api_local.py`, then
   `curl "http://localhost:8000/recommendation?postalCode=570150"` or open `/docs`.
-- Not yet implemented: `POST/GET/DELETE /laundry-sessions`, `/users`, `/users/verify`.
+- Session code: `drysg/sessions.py` (lifecycle), `drysg/db/sessions.py` (atomic persistence),
+  `drysg/api/sessions.py` (response mapping), plus routes in `drysg/api/app.py`.
+  Tests cover request validation, expiry, replacement races and the alert pipeline.
+- Not yet implemented: `/users`, `/users/verify`.
 
 Deviations from section 2 (decided while implementing):
 - `conditions.rainfallMm`, `forecast`, `psi`, `psiBand` and each `stationSources` entry are

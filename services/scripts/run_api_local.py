@@ -27,6 +27,7 @@ from moto import mock_aws
 
 from drysg.api.app import create_app
 from drysg.api.deps import build_deps
+from drysg.sessions import normalize_email
 
 SERVICES = Path(__file__).resolve().parents[1]
 REGION = "ap-southeast-1"
@@ -46,14 +47,43 @@ def load_env_file(path: Path) -> None:
 
 
 def create_tables() -> None:
+    """Create local weather, user and session storage inside Moto."""
     dynamodb: Any = boto3.resource("dynamodb")
-    for name, key in (("AreaSnapshot", "area"), ("PostalCache", "postal_code")):
+    for name, key in (
+        ("AreaSnapshot", "area"),
+        ("PostalCache", "postal_code"),
+        ("User", "email"),
+    ):
         dynamodb.create_table(
             TableName=name,
             BillingMode="PAY_PER_REQUEST",
             KeySchema=[{"AttributeName": key, "KeyType": "HASH"}],
             AttributeDefinitions=[{"AttributeName": key, "AttributeType": "S"}],
         )
+    dynamodb.create_table(
+        TableName="MonitoringSession",
+        BillingMode="PAY_PER_REQUEST",
+        KeySchema=[{"AttributeName": "session_id", "KeyType": "HASH"}],
+        AttributeDefinitions=[
+            {"AttributeName": name, "AttributeType": "S"}
+            for name in ("session_id", "area", "status", "email")
+        ],
+        GlobalSecondaryIndexes=[
+            {
+                "IndexName": "area-status-index",
+                "KeySchema": [
+                    {"AttributeName": "area", "KeyType": "HASH"},
+                    {"AttributeName": "status", "KeyType": "RANGE"},
+                ],
+                "Projection": {"ProjectionType": "ALL"},
+            },
+            {
+                "IndexName": "email-index",
+                "KeySchema": [{"AttributeName": "email", "KeyType": "HASH"}],
+                "Projection": {"ProjectionType": "KEYS_ONLY"},
+            },
+        ],
+    )
 
 
 def refresh_weather() -> None:
@@ -76,8 +106,16 @@ def main() -> None:
     parser.add_argument("--host", default="127.0.0.1")
     parser.add_argument("--port", type=int, default=8000)
     parser.add_argument("--refresh-minutes", type=float, default=5.0)
+    parser.add_argument(
+        "--test-email",
+        type=normalize_email,
+        default="local-test@example.com",
+        help="Seed a verified email in the in-memory User table only",
+    )
     args = parser.parse_args()
-    logging.basicConfig(level=logging.INFO, format="%(levelname)s %(name)s: %(message)s")
+    logging.basicConfig(
+        level=logging.INFO, format="%(levelname)s %(name)s: %(message)s"
+    )
 
     load_env_file(SERVICES / ".env")
     # Fake AWS: set after loading .env so nothing can reach a real account.
@@ -89,6 +127,8 @@ def main() -> None:
         AWS_REGION=REGION,
         TABLE_AREA_SNAPSHOT="AreaSnapshot",
         TABLE_POSTAL_CACHE="PostalCache",
+        TABLE_USER="User",
+        TABLE_MONITORING_SESSION="MonitoringSession",
     )
     os.environ.pop("AWS_PROFILE", None)
     if not os.environ.get("ONEMAP_TOKEN", "").strip():
@@ -96,6 +136,10 @@ def main() -> None:
 
     with mock_aws():
         create_tables()
+        boto3.resource("dynamodb").Table("User").put_item(
+            Item={"email": args.test_email, "verified": True}
+        )
+        logger.info("Local-only verified test email: %s", args.test_email)
         refresh_weather()
         stop = threading.Event()
         threading.Thread(

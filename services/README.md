@@ -4,7 +4,7 @@ AWS Lambda handlers built with FastAPI and Python. Contains the core backend bus
 
 | Lambda | Entry point | Status |
 |---|---|---|
-| API | `handlers/api.py` (FastAPI via Mangum) | `GET /recommendation` and `GET /health` done; session and user routes not built |
+| API | `handlers/api.py` (FastAPI via Mangum) | Recommendation, health and all three session routes done; user registration/verification not built |
 | Ingest | `handlers/ingest.py` | Done. Every 5 minutes: fetch NEA, score, save snapshots, queue alerts |
 | Notifier | `handlers/notifier.py` | Done. SQS to SES emails |
 
@@ -41,7 +41,7 @@ their values from infrastructure config. The full per-Lambda list is in
 | Run the API locally (`run_api_local.py`) | `ONEMAP_TOKEN` (postal code lookup). Optional: `NEA_API_KEY` |
 | Run the ingest locally (`run_ingest_local.py`) | None. Optional: `NEA_API_KEY` |
 | Rebuild the DP percentile table | None. Optional: `NEA_API_KEY` |
-| Deploy the API Lambda | `TABLE_AREA_SNAPSHOT`, `TABLE_POSTAL_CACHE`, `ONEMAP_TOKEN`, `APP_BASE_URL`, optional `NEA_API_KEY`, `LOG_LEVEL` |
+| Deploy the API Lambda | `TABLE_AREA_SNAPSHOT`, `TABLE_POSTAL_CACHE`, `ONEMAP_TOKEN`, `APP_BASE_URL`; session routes also need `TABLE_USER`, `TABLE_MONITORING_SESSION`; optional `NEA_API_KEY`, `LOG_LEVEL` |
 | Deploy ingest / notifier | See handlers.md |
 
 - **`ONEMAP_TOKEN`**: register at <https://www.onemap.gov.sg/apidocs/register>, then put the
@@ -78,6 +78,41 @@ cp .env.example .env          # first time only, then set ONEMAP_TOKEN in .env
 This starts uvicorn on <http://localhost:8000>. Weather is **live**: it fetches NEA data on
 start and every 5 minutes. DynamoDB is faked in memory, so nothing is saved between runs.
 Options: `--port 8765`, `--host 0.0.0.0`, `--refresh-minutes 5`.
+
+### Monitoring sessions
+
+The runner also creates in-memory User and MonitoringSession tables and seeds
+`local-test@example.com` as verified. Override it with `--test-email user@example.com`.
+This is a local fixture only; the deployed API never auto-verifies users and returns
+`403 EMAIL_NOT_VERIFIED` until their User row has `verified: true`. User registration
+and email verification endpoints remain a separate task.
+
+Use Swagger at `/docs`, or send these requests with your HTTP client:
+
+```http
+POST /laundry-sessions
+Content-Type: application/json
+
+{"postalCode":"570150","email":"local-test@example.com"}
+```
+
+POST returns `201` with exactly `id`, `postalCode`, `startedAt`, `expiresAt`, `active`.
+Use its `id` with `GET /laundry-sessions/{id}` and `DELETE /laundry-sessions/{id}`;
+both return `200` with the same shape. Timestamps use Singapore time. Sessions last
+12 hours; reads check expiry even before DynamoDB TTL deletes the row. DELETE is
+idempotent and never creates a missing session. Starting again for the same email
+atomically stops the previous session. Failed starts leave the old session active.
+
+Creation stores the current score, band, rain veto and scoring method as the alert
+baseline. Stale/missing weather or an obsolete scoring method returns `503`.
+Malformed input returns `400`, unknown session IDs return `404`, and exhausted
+concurrent-start retries return `409`. Errors retain `{error: {code, message}}`.
+
+Deployment requirements and additional table permissions are listed in
+[handlers.md](../docs/contracts/handlers.md#session-api-deployment). The API Gateway
+infra branch still needs to wire these settings. This change does not deploy AWS resources.
+
+### Recommendation
 
 Call it with your postal code:
 
