@@ -30,7 +30,7 @@ Notifier Lambda ──▶ SES email to the user, logged in AlertLog (dedupe)
 
 Lambda settings (handlers, timeouts, env vars, IAM) follow [`docs/contracts/handlers.md`](../docs/contracts/handlers.md).
 
-**Not yet built:** web hosting, and the API's `/users` and `/laundry-sessions` routes (only `GET /recommendation` exists). Until the session routes exist, no real monitoring sessions are created, so no real alerts are sent.
+**Not yet built:** web hosting, and the API's `/users` and `/users/verify` routes. Until users can register and verify, no real monitoring sessions are created, so no real alerts are sent.
 
 ## Prerequisites
 - [AWS CLI v2](https://aws.amazon.com/cli/) and [Terraform](https://developer.hashicorp.com/terraform/install) ≥ 1.11
