@@ -76,7 +76,7 @@ resource "aws_lambda_function" "notifier" {
       TABLE_ALERT_LOG          = aws_dynamodb_table.alert_log.name
       TABLE_MONITORING_SESSION = aws_dynamodb_table.monitoring_session.name
       SES_SENDER               = var.ses_sender
-      APP_BASE_URL             = var.app_base_url
+      APP_BASE_URL             = local.app_base_url
       LOG_LEVEL                = "INFO"
     }
   }

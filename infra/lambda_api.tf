@@ -65,7 +65,7 @@ resource "aws_lambda_function" "api" {
       TABLE_USER               = aws_dynamodb_table.user.name
       TABLE_MONITORING_SESSION = aws_dynamodb_table.monitoring_session.name
       ONEMAP_TOKEN             = var.onemap_token
-      APP_BASE_URL             = var.app_base_url
+      APP_BASE_URL             = local.app_base_url
       LOG_LEVEL                = "INFO"
     }
   }

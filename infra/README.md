@@ -27,10 +27,11 @@ Notifier Lambda ──▶ SES email to the user, logged in AlertLog (dedupe)
 | `ses.tf` | Verified sender email for alerts |
 | `lambda_api.tf` | API Lambda and its IAM role |
 | `api_gateway.tf` | HTTP API in front of the API Lambda |
+| `web_hosting.tf` | S3 bucket for the website files, served through CloudFront |
 
 Lambda settings (handlers, timeouts, env vars, IAM) follow [`docs/contracts/handlers.md`](../docs/contracts/handlers.md).
 
-**Not yet built:** web hosting, and the API's `/users` and `/users/verify` routes. Until users can register and verify, no real monitoring sessions are created, so no real alerts are sent.
+**Not yet built:** the website itself (`web/` is still a placeholder), and the API's `/users` and `/users/verify` routes. Until users can register and verify, no real monitoring sessions are created, so no real alerts are sent.
 
 ## Prerequisites
 - [AWS CLI v2](https://aws.amazon.com/cli/) and [Terraform](https://developer.hashicorp.com/terraform/install) ≥ 1.11
@@ -78,6 +79,28 @@ terraform apply
 ```
 - Always rebuild the zip before applying. If you forget, Terraform deploys the old code without any error.
 - Read the `plan` output before `apply`, especially anything marked **destroy**.
+
+## Deploying the website
+`terraform apply` creates an empty bucket. Upload the site by hand after each UI change, from the repo root:
+```
+cd infra
+$api = terraform output -raw api_url                 # macOS/Linux: api=$(terraform output -raw api_url)
+$bucket = terraform output -raw web_bucket_name      # macOS/Linux: bucket=$(terraform output -raw web_bucket_name)
+$cdn = terraform output -raw web_distribution_id     # macOS/Linux: cdn=$(terraform output -raw web_distribution_id)
+cd ../web
+npm ci
+$env:VITE_API_BASE_URL = $api                        # macOS/Linux: export VITE_API_BASE_URL=$api
+npm run build
+aws s3 sync dist/ s3://$bucket --delete
+aws cloudfront create-invalidation --distribution-id $cdn --paths "/*"
+```
+The site is then at `terraform output web_url`.
+
+- The API address is baked into the build. If it ever changes, build and upload again.
+- Without the invalidation, CloudFront can keep serving the old `index.html` for up to a day.
+- A new CloudFront address takes a few minutes to start working.
+- The API only accepts calls from the CloudFront address, so a UI on `localhost:5173` can't call it from a browser. Run the API locally (`services/scripts/run_api_local.py`) when working on the UI.
+- `--delete` removes anything in the bucket that isn't in `dist/`.
 
 ## Testing
 
@@ -164,7 +187,7 @@ Avoid adding anything that bills while idle (NAT Gateway, RDS, EC2). The Lambdas
 | `env` | `dev` | Name prefix (`drysg-<env>-...`) |
 | `ses_sender` | (required, in `terraform.tfvars`) | From address for alert emails |
 | `onemap_token` | (required, in `terraform.tfvars`) | OneMap token for postal code lookups. Expires after about 3 days |
-| `app_base_url` | `http://localhost:5173` | Website URL used in email links. Change it once the web app is hosted |
+| `app_base_url` | (the CloudFront address) | Website URL used in email links and as the API's allowed origin. Overrides the CloudFront address if set |
 | `ingest_schedule_enabled` | `true` | Turns the 5-minute schedule on or off |
 | `ingest_reserved_concurrency` | `1` | Prevents overlapping ingest runs. Use `-1` if the account's concurrency limit is only 10 |
 
