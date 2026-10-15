@@ -22,6 +22,18 @@ data "aws_iam_policy_document" "api" {
     actions   = ["dynamodb:GetItem", "dynamodb:PutItem"]
     resources = [aws_dynamodb_table.postal_cache.arn]
   }
+
+  # Session routes: check the user, and keep their active session ID
+  statement {
+    actions   = ["dynamodb:GetItem", "dynamodb:UpdateItem"]
+    resources = [aws_dynamodb_table.user.arn]
+  }
+
+  # Start a session (also stops the old one), read it, and stop it
+  statement {
+    actions   = ["dynamodb:GetItem", "dynamodb:PutItem", "dynamodb:UpdateItem"]
+    resources = [aws_dynamodb_table.monitoring_session.arn]
+  }
 }
 
 resource "aws_iam_role_policy" "api" {
@@ -48,11 +60,13 @@ resource "aws_lambda_function" "api" {
 
   environment {
     variables = {
-      TABLE_AREA_SNAPSHOT = aws_dynamodb_table.area_snapshot.name
-      TABLE_POSTAL_CACHE  = aws_dynamodb_table.postal_cache.name
-      ONEMAP_TOKEN        = var.onemap_token
-      APP_BASE_URL        = var.app_base_url
-      LOG_LEVEL           = "INFO"
+      TABLE_AREA_SNAPSHOT      = aws_dynamodb_table.area_snapshot.name
+      TABLE_POSTAL_CACHE       = aws_dynamodb_table.postal_cache.name
+      TABLE_USER               = aws_dynamodb_table.user.name
+      TABLE_MONITORING_SESSION = aws_dynamodb_table.monitoring_session.name
+      ONEMAP_TOKEN             = var.onemap_token
+      APP_BASE_URL             = var.app_base_url
+      LOG_LEVEL                = "INFO"
     }
   }
 
