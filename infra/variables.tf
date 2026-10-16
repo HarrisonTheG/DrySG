@@ -32,7 +32,7 @@ variable "onemap_token" {
 }
 
 variable "app_base_url" {
-  description = "Frontend URL used in email links (e.g. stop monitoring). CloudFront URL once the web app is hosted"
+  description = "Frontend URL used in email links and as the API's CORS origin. Leave unset to use the CloudFront address"
   type        = string
-  default     = "http://localhost:5173"
+  default     = null
 }
