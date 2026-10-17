@@ -1,7 +1,11 @@
-export type RecommendationState =
-  | "HANG_NOW"
-  | "WAIT"
-  | "DO_NOT_HANG"
+export type RecommendationState = "HANG_NOW" | "WAIT" | "DO_NOT_HANG"
+
+export type PsiBand =
+  | "Good"
+  | "Moderate"
+  | "Unhealthy"
+  | "Very Unhealthy"
+  | "Hazardous"
 
 export interface WeatherConditions {
   rainfallMm: number
@@ -10,12 +14,7 @@ export interface WeatherConditions {
   windSpeedMs: number
   forecast: string
   psi: number
-  psiBand:
-    | "Good"
-    | "Moderate"
-    | "Unhealthy"
-    | "Very Unhealthy"
-    | "Hazardous"
+  psiBand: PsiBand
 }
 
 export interface StationSources {
@@ -31,7 +30,7 @@ export interface DryingRecommendation {
   score: number
   recommendation: RecommendationState
   summary: string
-  percentileDescription?: string
+  percentileDescription: string
   updatedAt: string
   conditions: WeatherConditions
   rainVeto: boolean
@@ -42,7 +41,15 @@ export interface DryingRecommendation {
 export interface LaundrySession {
   id: string
   postalCode: string
+  email: string
+  areaName: string
   startedAt: string
   expiresAt: string
   active: boolean
+  lastAlertState?: RecommendationState
+}
+
+export interface StartLaundrySessionInput {
+  postalCode: string
+  email: string
 }
