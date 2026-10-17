@@ -98,9 +98,19 @@ def test_start_returns_contract_and_persists_alert_baseline(session_api):
     response = start(session_api, email=" USER@EXAMPLE.COM ", postalCode=" 570150 ")
     assert response.status_code == 201, response.text
     body = response.json()
-    assert set(body) == {"id", "postalCode", "startedAt", "expiresAt", "active"}
+    assert set(body) == {
+        "id",
+        "postalCode",
+        "email",
+        "areaName",
+        "startedAt",
+        "expiresAt",
+        "active",
+    }
     assert UUID(body["id"]).version == 4
     assert body["postalCode"] == POSTAL
+    assert body["email"] == EMAIL
+    assert body["areaName"] == "Bishan"
     assert body["active"] is True
     assert body["startedAt"] == "2026-10-04T14:00:00+08:00"
     assert body["expiresAt"] == "2026-10-05T02:00:00+08:00"
@@ -132,6 +142,35 @@ def test_get_and_repeated_delete_keep_the_session_inactive(session_api):
     after = session_api.table.get_item(Key={"session_id": original["id"]})["Item"]
     assert after["status"] == "stopped"
     assert after["stopped_at"] == row["stopped_at"]
+
+
+@pytest.mark.parametrize(
+    ("stored_band", "expected_state"),
+    [("Hang Now", "HANG_NOW"), ("Wait", "WAIT"), ("Do Not Hang", "DO_NOT_HANG")],
+)
+def test_get_and_stop_return_recorded_alert_state(
+    session_api, stored_band, expected_state
+):
+    response = start(session_api)
+    assert response.status_code == 201
+    original = response.json()
+    session_api.table.update_item(
+        Key={"session_id": original["id"]},
+        UpdateExpression="SET last_alert_band = :band, last_alert_at = :at",
+        ExpressionAttributeValues={":band": stored_band, ":at": NOW.isoformat()},
+    )
+    path = f"/laundry-sessions/{original['id']}"
+    for method, active in (
+        (session_api.client.get, True),
+        (session_api.client.delete, False),
+    ):
+        result = method(path)
+        assert result.status_code == 200
+        assert result.json() == {
+            **original,
+            "active": active,
+            "lastAlertState": expected_state,
+        }
 
 
 def test_expired_session_is_inactive_even_before_ttl_deletion(session_api):

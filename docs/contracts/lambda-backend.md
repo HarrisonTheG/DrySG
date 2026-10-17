@@ -51,8 +51,10 @@ agreed design).
 ### DELETE /laundry-sessions/{id}
 Idempotent. Stopping an already stopped or expired session returns `200` with `active: false`.
 The alert email's stop link is `{APP_BASE_URL}/stop?session={id}`; the frontend `/stop` route calls
-this endpoint. The session `id` (UUID4) is the bearer secret, so the `email` is never echoed back
-in any response.
+this endpoint. The session `id` (UUID4) is the bearer secret. Session responses include
+the normalized `email` and `areaName` for the monitoring card. `lastAlertState` is omitted
+until the notifier records an alert state. It is recorded before sending, so it does not
+confirm successful email delivery. Internal baseline fields are not returned.
 
 ### Errors
 Every non-2xx response uses:
@@ -119,9 +121,12 @@ export interface DryingRecommendation {
 export interface LaundrySession {
   id: string                          // UUID4
   postalCode: string
+  email: string
+  areaName: string
   startedAt: string
   expiresAt: string
   active: boolean
+  lastAlertState?: RecommendationState
 }
 ```
 
@@ -281,6 +286,8 @@ no `percentileDescription`, and `summary` = `"Rain detected nearby. Do not hang.
 {
   "id": "6f1c2b8e-3a4d-4e5f-9a7b-1c2d3e4f5a6b",
   "postalCode": "530123",
+  "email": "user@example.com",
+  "areaName": "Hougang",
   "startedAt": "2026-10-04T12:40:00+08:00",
   "expiresAt": "2026-10-05T00:40:00+08:00",
   "active": true
@@ -304,7 +311,7 @@ Error:
 | Score | Weighted rain 30 / humidity 40 / wind 10 / temp 20 | DP percentile; rain and PSI outside the score |
 | PSI | Informational | Drives `airQualityWarning` |
 | Session body | `postal_code`, `email` | `postalCode`, `email` |
-| Session response | Includes `email`, `area`, `status`, `current` | `LaundrySession` (no email); `GET` adds `recommendation` |
+| Session response | Includes `email`, `area`, `status`, `current` | `LaundrySession` includes `email`, `areaName`, `active`, and optional `lastAlertState`; fetch recommendation separately |
 | Errors | adds `INVALID_TOKEN` for `/users/verify` | unchanged there, plus `INVALID_SESSION_ID` |
 
 Done: `services/drysg/core/dp_percentiles.py`, the rewritten `compute_score` and `ScoreResult`,

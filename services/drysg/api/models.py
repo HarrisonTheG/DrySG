@@ -91,10 +91,19 @@ class StartLaundrySession(BaseModel):
 
 
 class LaundrySession(BaseModel):
-    """Public session state; never includes the email or alert baseline."""
+    """Monitoring details for the frontend, without the internal alert baseline."""
 
     id: str = Field(json_schema_extra={"format": "uuid"})
     postalCode: str
+    email: str = Field(json_schema_extra={"format": "email"})
+    areaName: str
     startedAt: str = Field(json_schema_extra={"format": "date-time"})
     expiresAt: str = Field(json_schema_extra={"format": "date-time"})
     active: bool
+    lastAlertState: RecommendationState | None = Field(
+        default=None,
+        description=(
+            "Last alert state recorded by the notifier, not proof of email delivery. "
+            "Omitted when no alert state has been recorded."
+        ),
+    )

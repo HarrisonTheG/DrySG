@@ -1,6 +1,8 @@
 {
   "id": "6f1c2b8e-3a4d-4e5f-9a7b-1c2d3e4f5a6b",
   "postalCode": "530123",
+  "email": "user@example.com",
+  "areaName": "Hougang",
   "startedAt": "2026-10-04T12:40:00+08:00",
   "expiresAt": "2026-10-05T00:40:00+08:00",
   "active": true

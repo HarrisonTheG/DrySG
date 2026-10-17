@@ -307,12 +307,18 @@ components:
 
     LaundrySession:
       type: object
-      required: [id, postalCode, startedAt, expiresAt, active]
+      required: [id, postalCode, email, areaName, startedAt, expiresAt, active]
       properties:
         id: { type: string, format: uuid, description: The session's `session_id`; also used in email stop links }
         postalCode: { type: string }
+        email: { type: string, format: email }
+        areaName: { type: string }
         startedAt: { type: string, format: date-time }
         expiresAt: { type: string, format: date-time }
         active:
           type: boolean
           description: True while status is `active` and not past `expiresAt`; false once stopped or expired.
+        lastAlertState:
+          allOf:
+            - $ref: '#/components/schemas/RecommendationState'
+          description: Last alert state recorded by the notifier, not proof of email delivery. Omitted when no alert state has been recorded.

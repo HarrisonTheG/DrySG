@@ -293,6 +293,7 @@ def create_app(
         "/laundry-sessions",
         status_code=201,
         response_model=LaundrySession,
+        response_model_exclude_none=True,
         responses={status: {"model": ApiError} for status in (400, 403, 404, 409, 503)},
     )
     def start_laundry_session(
@@ -316,6 +317,7 @@ def create_app(
     @app.get(
         "/laundry-sessions/{id}",
         response_model=LaundrySession,
+        response_model_exclude_none=True,
         responses={status: {"model": ApiError} for status in (400, 404, 503)},
     )
     def get_laundry_session(
@@ -324,12 +326,13 @@ def create_app(
         ],
         deps: Annotated[ApiDeps, Depends(get_deps)],
     ) -> LaundrySession:
-        """Read monitoring state without exposing the user's email."""
+        """Read monitoring details and the last recorded alert state."""
         return to_laundry_session(session_service(deps).get(session_id), deps.clock())
 
     @app.delete(
         "/laundry-sessions/{id}",
         response_model=LaundrySession,
+        response_model_exclude_none=True,
         responses={status: {"model": ApiError} for status in (400, 404, 503)},
     )
     def stop_laundry_session(

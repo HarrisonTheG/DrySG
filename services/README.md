@@ -96,7 +96,10 @@ Content-Type: application/json
 {"postalCode":"570150","email":"local-test@example.com"}
 ```
 
-POST returns `201` with exactly `id`, `postalCode`, `startedAt`, `expiresAt`, `active`.
+POST returns `201` with `id`, `postalCode`, `email`, `areaName`, `startedAt`,
+`expiresAt`, and `active`. Responses also include `lastAlertState` once the notifier
+has recorded an alert state; otherwise the field is omitted. This records the
+notifier's state and does not confirm successful email delivery.
 Use its `id` with `GET /laundry-sessions/{id}` and `DELETE /laundry-sessions/{id}`;
 both return `200` with the same shape. Timestamps use Singapore time. Sessions last
 12 hours; reads check expiry even before DynamoDB TTL deletes the row. DELETE is
