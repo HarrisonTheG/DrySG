@@ -1,32 +1,39 @@
-"""Drying score rules (also serves as the 5.1 'score outputs vs predefined rules' test)."""
+"""Drying score rules: Penman drying potential, percentile score, rain veto, PSI warning."""
 
 from datetime import datetime, timedelta
 
 import pytest
 
-from drysg.core import scoring
+from drysg.core import dp_percentiles, scoring
+from drysg.core.dp_percentiles import DP_INPUT_MEDIANS
 from drysg.core.models import Band, Conditions, Forecast, PsiLevel, Reading
 from drysg.core.scoring import (
     InsufficientDataError,
     band_for,
     compute_score,
-    forecast_subscore,
-    humidity_subscore,
+    dp_to_score,
+    drying_potential,
+    percentile_description,
     psi_caution,
-    rain_subscore,
-    temperature_subscore,
-    wind_subscore,
+    rain_veto_reason,
+    saturation_vapour_pressure,
+    vapour_pressure_deficit,
 )
 
 NOW = datetime.fromisoformat("2026-10-04T12:00:00+08:00")
 
 
 def make_conditions(
-    rain=0.0, humidity=60.0, temp=32.0, wind=10.0, forecast="Fair (Day)", psi=None
+    rain: float | None = 0.0,
+    humidity: float | None = 60.0,
+    temp: float | None = 32.0,
+    wind: float | None = 10.0,
+    forecast: str | None = "Fair (Day)",
+    psi: float | None = None,
 ) -> Conditions:
-    """Defaults are ideal drying conditions. Pass None to drop an input."""
+    """Wind is in knots. Defaults are dry, warm and breezy. Pass None to drop an input."""
 
-    def r(v):
+    def r(v: float | None) -> Reading | None:
         return None if v is None else Reading(value=v, observed_at=NOW)
 
     return Conditions(
@@ -41,99 +48,127 @@ def make_conditions(
     )
 
 
-def test_weights_sum_to_one():
-    total = (
-        scoring.WEIGHT_RAIN
-        + scoring.WEIGHT_HUMIDITY
-        + scoring.WEIGHT_WIND
-        + scoring.WEIGHT_TEMPERATURE
+# --- Percentile table ---------------------------------------------------------
+
+
+def test_percentile_table_shape():
+    table = dp_percentiles.DP_PERCENTILES
+    assert len(table) == 101
+    assert all(a <= b for a, b in zip(table, table[1:], strict=False))
+    assert table[0] >= 0
+
+
+# --- Physics ------------------------------------------------------------------
+
+
+@pytest.mark.parametrize(
+    ("temp_c", "kpa"),
+    [(0, 0.6108), (20, 2.338), (25, 3.168), (30, 4.243)],  # standard Tetens/FAO-56 values
+)
+def test_saturation_vapour_pressure(temp_c, kpa):
+    assert saturation_vapour_pressure(temp_c) == pytest.approx(kpa, abs=0.002)
+
+
+def test_vpd_scales_with_dryness_and_clamps_humidity():
+    es = saturation_vapour_pressure(30)
+    assert vapour_pressure_deficit(30, 100) == 0
+    assert vapour_pressure_deficit(30, 50) == pytest.approx(es / 2)
+    assert vapour_pressure_deficit(30, 0) == pytest.approx(es)
+    assert vapour_pressure_deficit(30, 120) == 0  # over-range clamped
+    assert vapour_pressure_deficit(30, -5) == pytest.approx(es)
+
+
+def test_drying_potential_worked_example():
+    # T=30C, RH=75%: VPD = 4.243 * 0.25 = 1.0608 kPa
+    assert drying_potential(30, 75, 0) == pytest.approx(1.0608, abs=0.005)
+    # u=2 m/s: (1 + 0.536 * 2) * VPD
+    assert drying_potential(30, 75, 2) == pytest.approx(2.0720 * 1.0608, abs=0.01)
+
+
+def test_drying_potential_is_monotonic_in_each_input():
+    base = drying_potential(29, 75, 2)
+    assert drying_potential(32, 75, 2) > base  # hotter
+    assert drying_potential(29, 60, 2) > base  # drier air
+    assert drying_potential(29, 75, 4) > base  # windier
+
+
+def test_saturated_air_has_no_drying_potential_even_with_wind():
+    assert drying_potential(28, 100, 10) == 0
+
+
+def test_negative_wind_is_treated_as_calm():
+    assert drying_potential(30, 75, -3) == drying_potential(30, 75, 0)
+
+
+# --- DP to score --------------------------------------------------------------
+
+TABLE = tuple(float(k) for k in range(101))  # DP k == k-th percentile, for easy reading
+
+
+@pytest.mark.parametrize(
+    ("dp", "expected"),
+    [
+        (-1.0, 0),  # below the historical minimum
+        (0.0, 0),
+        (0.99, 0),
+        (1.0, 1),
+        (82.0, 82),  # exactly the 82nd percentile
+        (82.9, 82),  # between 82 and 83: still 82
+        (100.0, 100),
+        (250.0, 100),  # above the historical maximum
+    ],
+)
+def test_dp_to_score_percentile_position(dp, expected):
+    assert dp_to_score(dp, TABLE) == expected
+
+
+def test_dp_to_score_matches_brief_example():
+    # DP 3.0 is higher than 82% of history -> score 82.
+    table = tuple(3.0 * k / 82 for k in range(101))
+    assert dp_to_score(3.0, table) == 82
+
+
+def test_dp_to_score_never_decreases_as_dp_rises():
+    scores = [dp_to_score(i / 20) for i in range(0, 300)]
+    assert scores == sorted(scores)
+    assert scores[0] == 0
+    assert scores[-1] == 100
+
+
+def test_percentile_description_uses_score_and_year():
+    assert percentile_description(82) == (
+        f"Drier than 82% of Singapore dry-weather readings in {dp_percentiles.DP_PERCENTILES_YEAR}"
     )
-    assert total == pytest.approx(1.0)
 
 
-# --- Sub-scores ---------------------------------------------------------------
-
-
-@pytest.mark.parametrize(
-    ("pct", "expected"), [(40, 100), (60, 100), (77.5, 50), (95, 0), (100, 0)]
-)
-def test_humidity_subscore(pct, expected):
-    assert humidity_subscore(pct) == pytest.approx(expected)
-
-
-@pytest.mark.parametrize(("c", "expected"), [(20, 0), (24, 0), (28, 50), (32, 100), (36, 100)])
-def test_temperature_subscore(c, expected):
-    assert temperature_subscore(c) == pytest.approx(expected)
+# --- Rain veto ----------------------------------------------------------------
 
 
 @pytest.mark.parametrize(
-    ("knots", "expected"),
+    ("rain_mm", "forecast", "vetoed"),
     [
-        (0, 30),
-        (2.5, 65),
-        (5, 100),
-        (10, 100),
-        (15, 100),
-        (20, 70),
-        (25, 40),
-        (30, 20),
-        (35, 0),
-        (45, 0),
+        (0.0, "Fair (Day)", False),
+        (0.0, "Cloudy", False),
+        (0.2, "Fair (Day)", True),  # observed rain beats a fair forecast
+        (0.0, "Thundery Showers", True),  # forecast rain vetoes even if dry now
+        (0.0, "Light Rain", True),
+        (0.0, "Passing Showers", True),
+        (0.0, "Heavy Thundery Showers with Gusty Winds", True),
+        (0.0, "Drizzle", True),
+        (None, "Partly Cloudy (Day)", False),  # station missing: forecast only
+        (None, "Light Rain (Night)", True),
+        (0.0, None, False),  # forecast missing: dry observation only
+        (0.4, None, True),
+        (None, None, False),
     ],
 )
-def test_wind_subscore(knots, expected):
-    assert wind_subscore(knots) == pytest.approx(expected)
-
-
-@pytest.mark.parametrize(
-    ("text", "expected"),
-    [
-        ("Fair", 100),
-        ("Fair (Day)", 100),
-        ("Fair (Night)", 100),
-        ("Fair and Warm", 100),
-        ("Partly Cloudy (Night)", 85),
-        ("Windy", 80),
-        ("Slightly Hazy", 70),
-        ("Cloudy", 60),
-        ("Hazy", 60),
-        ("Mist", 40),
-        ("Fog", 30),
-        ("Some New Category", scoring.UNKNOWN_FORECAST_SCORE),
-        ("Light Rain", 0),
-        ("Passing Showers", 0),
-        ("Thundery Showers", 0),
-        ("Heavy Thundery Showers with Gusty Winds", 0),
-        ("Drizzle", 0),
-    ],
-)
-def test_forecast_subscore(text, expected):
-    assert forecast_subscore(text) == expected
-
-
-@pytest.mark.parametrize(
-    ("rain_mm", "forecast", "expected_score", "vetoed"),
-    [
-        (0.0, "Fair (Day)", 100, False),
-        (0.0, "Cloudy", 60, False),
-        (0.2, "Fair (Day)", 0, True),  # observed rain beats a fair forecast
-        (0.0, "Thundery Showers", 0, True),  # forecast rain vetoes even if dry now
-        (None, "Partly Cloudy (Day)", 85, False),  # station missing: forecast only
-        (0.0, None, scoring.DRY_NO_FORECAST_SCORE, False),  # forecast missing
-        (None, None, None, False),
-    ],
-)
-def test_rain_subscore(rain_mm, forecast, expected_score, vetoed):
-    score, reason = rain_subscore(rain_mm, forecast)
-    assert score == expected_score
-    assert (reason is not None) is vetoed
+def test_rain_veto(rain_mm, forecast, vetoed):
+    assert (rain_veto_reason(rain_mm, forecast) is not None) is vetoed
 
 
 def test_veto_reasons_are_readable():
-    assert rain_subscore(1.2, None)[1] == (
-        "Rain detected at nearby station (1.2 mm in last 5 min)"
-    )
-    assert rain_subscore(0.0, "Heavy Thundery Showers with Gusty Winds (Day)")[1] == (
+    assert rain_veto_reason(1.2, None) == "Rain detected at nearby station (1.2 mm in last 5 min)"
+    assert rain_veto_reason(0.0, "Heavy Thundery Showers with Gusty Winds (Day)") == (
         "Heavy Thundery Showers with Gusty Winds forecast for the next 2 hours"
     )
 
@@ -178,76 +213,121 @@ def test_psi_caution(psi, level):
 # --- compute_score end to end -------------------------------------------------
 
 
+def test_good_drying_conditions_score_high_and_hang_now():
+    # 33C, 55% RH, ~5 m/s: strongly favourable.
+    result = compute_score(make_conditions(temp=33, humidity=55, wind=10))
+    assert result.score >= 95
+    assert result.band is Band.HANG_NOW
+    assert result.veto is False
+    assert result.veto_reason is None
+
+
+def test_poor_drying_conditions_score_low():
+    result = compute_score(make_conditions(temp=25, humidity=98, wind=1))
+    assert result.score <= 5
+    assert result.band is Band.DO_NOT_HANG
+    assert result.veto is False  # poor air is not a veto, just a low score
+
+
+def test_score_matches_dp_percentile_with_knots_converted_to_ms():
+    result = compute_score(make_conditions(temp=30, humidity=70, wind=6))
+    dp = drying_potential(30, 70, 6 * scoring.KNOTS_TO_MS)
+    assert result.dp == pytest.approx(dp, abs=1e-4)
+    assert result.score == dp_to_score(dp)
+    assert result.band is band_for(result.score)
+
+
+def test_wind_in_knots_not_ms_drives_the_score():
+    still = compute_score(make_conditions(temp=30, humidity=70, wind=0))
+    breezy = compute_score(make_conditions(temp=30, humidity=70, wind=10))
+    assert breezy.dp is not None and still.dp is not None
+    assert breezy.dp > still.dp
+    assert breezy.score > still.score
+
+
+def test_rain_vetoes_but_score_still_reflects_drying_potential():
+    dry = compute_score(make_conditions(rain=0.0, temp=33, humidity=55, wind=10))
+    rainy = compute_score(make_conditions(rain=0.6, temp=33, humidity=55, wind=10))
+    assert rainy.veto is True
+    assert rainy.band is Band.DO_NOT_HANG
+    assert rainy.veto_reason is not None
+    assert rainy.veto_reason.startswith("Rain detected")
+    assert rainy.score == dry.score  # score is never capped by the veto
+    assert dry.band is Band.HANG_NOW
+
+
+def test_forecast_rain_vetoes_even_when_station_is_dry():
+    result = compute_score(make_conditions(rain=0.0, forecast="Thundery Showers"))
+    assert result.veto is True
+    assert result.band is Band.DO_NOT_HANG
+
+
+def test_forecast_alone_can_decide_the_veto():
+    assert compute_score(make_conditions(rain=None, forecast="Light Rain")).veto is True
+    assert compute_score(make_conditions(rain=None, forecast="Fair (Day)")).veto is False
+
+
+def test_rainfall_alone_can_decide_the_veto():
+    assert compute_score(make_conditions(rain=0.2, forecast=None)).veto is True
+    assert compute_score(make_conditions(rain=0.0, forecast=None)).veto is False
+
+
 @pytest.mark.parametrize(
-    ("kwargs", "score", "band", "veto"),
+    ("psi", "warning", "level"),
     [
-        # Ideal conditions.
-        ({}, 100, Band.HANG_NOW, False),
-        # Typical sunny SG afternoon: 0.3*100 + 0.4*58.6 + 0.1*88.8 + 0.2*87.5 = 79.82
-        (
-            {"humidity": 74.5, "wind": 4.2, "temp": 31.0, "forecast": "Fair (Day)"},
-            80,
-            Band.HANG_NOW,
-            False,
-        ),
-        # Overcast and humid: 0.3*60 + 0.4*40 + 0.1*59.4 + 0.2*62.5 = 52.44
-        (
-            {"humidity": 81.0, "wind": 2.1, "temp": 29.0, "forecast": "Cloudy"},
-            52,
-            Band.WAIT,
-            False,
-        ),
-        # Humid night, dry forecast (real NEA fixture values, 2026-10-04 00:45):
-        # 0.3*100 + 0.4*37.1 + 0.1*69.2 + 0.2*62.5 = 64.28 -> must not be Hang Now.
-        (
-            {"humidity": 82.0, "wind": 2.8, "temp": 29.0, "forecast": "Fair (Night)"},
-            64,
-            Band.WAIT,
-            False,
-        ),
-        # Thunderstorm: 0 + 0.4*11.4 + 0.1*100 + 0.2*37.5 = 22.06
-        (
-            {"humidity": 91.0, "wind": 9.8, "temp": 27.0, "forecast": "Thundery Showers"},
-            22,
-            Band.DO_NOT_HANG,
-            True,
-        ),
-        # Observed rain with otherwise perfect conditions: 70, capped to 49 by veto.
-        ({"rain": 0.2}, scoring.VETO_SCORE_CAP, Band.DO_NOT_HANG, True),
+        (None, False, None),
+        (48, False, PsiLevel.GOOD),
+        (100, False, PsiLevel.MODERATE),
+        (101, True, PsiLevel.UNHEALTHY),
+        (250, True, PsiLevel.VERY_UNHEALTHY),
+        (350, True, PsiLevel.HAZARDOUS),
     ],
 )
-def test_compute_score(kwargs, score, band, veto):
-    result = compute_score(make_conditions(**kwargs))
-    assert (result.score, result.band, result.veto) == (score, band, veto)
-    assert result.degraded is False
+def test_air_quality_warning_threshold(psi, warning, level):
+    result = compute_score(make_conditions(psi=psi))
+    assert result.air_quality_warning is warning
+    assert result.psi_caution is level
 
 
-def test_psi_does_not_affect_score():
+def test_psi_does_not_affect_score_or_band():
     clean = compute_score(make_conditions(psi=20))
     hazy = compute_score(make_conditions(psi=350))
-    assert clean.score == hazy.score
-    assert (clean.psi_caution, hazy.psi_caution) == (PsiLevel.GOOD, PsiLevel.HAZARDOUS)
+    assert (clean.score, clean.band) == (hazy.score, hazy.band)
 
 
-def test_missing_factor_redistributes_weight_and_flags_degraded():
-    result = compute_score(make_conditions(humidity=None))
-    assert result.sub_scores.humidity is None
-    assert result.score == 100  # remaining factors are all perfect
+@pytest.mark.parametrize(
+    ("missing", "field"),
+    [("temp", "temp_c"), ("humidity", "humidity_pct"), ("wind", "wind_knots")],
+)
+def test_missing_drying_input_uses_historical_median(missing, field):
+    result = compute_score(make_conditions(**{missing: None}))
+    assert result.degraded is True
+    assert result.estimated_inputs == [field]
+    medians = {"temp": 32.0, "humidity": 60.0, "wind": 10.0, missing: DP_INPUT_MEDIANS[field]}
+    expected = compute_score(make_conditions(**medians))
+    assert (result.score, result.dp) == (expected.score, expected.dp)
+    assert expected.degraded is False
+
+
+def test_two_missing_inputs_still_score():
+    result = compute_score(make_conditions(temp=None, wind=None))
+    assert result.estimated_inputs == ["temp_c", "wind_knots"]
     assert result.degraded is True
 
 
-def test_missing_rain_info_caps_below_hang_now():
-    result = compute_score(make_conditions(rain=None, forecast=None))
-    assert result.score == scoring.MISSING_RAIN_SCORE_CAP
-    assert result.band is Band.WAIT
-    assert result.degraded is True
+def test_all_three_drying_inputs_missing_raises():
+    with pytest.raises(InsufficientDataError, match="Missing drying inputs"):
+        compute_score(make_conditions(temp=None, humidity=None, wind=None))
 
 
-def test_missing_forecast_uses_dry_fallback_and_flags_degraded():
-    # 0.3*70 + 0.7*100 = 91
-    result = compute_score(make_conditions(forecast=None))
-    assert result.score == 91
-    assert result.degraded is True
+def test_estimated_input_does_not_hide_rain():
+    result = compute_score(make_conditions(wind=None, rain=1.2))
+    assert result.veto is True and result.band is Band.DO_NOT_HANG and result.degraded
+
+
+def test_missing_rain_information_raises():
+    with pytest.raises(InsufficientDataError, match="rain veto"):
+        compute_score(make_conditions(rain=None, forecast=None))
 
 
 def test_all_inputs_missing_raises():
@@ -255,6 +335,11 @@ def test_all_inputs_missing_raises():
         compute_score(
             make_conditions(rain=None, humidity=None, temp=None, wind=None, forecast=None)
         )
+
+
+def test_zero_humidity_and_out_of_range_humidity_do_not_break_scoring():
+    for humidity in (0, 100, 105):
+        assert 0 <= compute_score(make_conditions(humidity=humidity)).score <= 100
 
 
 def test_score_always_in_range_across_input_grid():
@@ -267,6 +352,7 @@ def test_score_always_in_range_across_input_grid():
                             make_conditions(rain, humidity, temp, wind, forecast)
                         )
                         assert 0 <= result.score <= 100
-                        assert result.band is band_for(result.score)
                         if result.veto:
                             assert result.band is Band.DO_NOT_HANG
+                        else:
+                            assert result.band is band_for(result.score)

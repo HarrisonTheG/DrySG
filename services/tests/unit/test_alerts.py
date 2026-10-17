@@ -20,8 +20,7 @@ RAIN = "Rain detected at nearby station (0.4 mm in last 5 min)"
         ((60, Band.WAIT), 40, None, True),
         # Rain veto, even if the score barely moved
         ((85, Band.HANG_NOW), 49, RAIN, True),
-        # Score drop within Wait
-        ((68, Band.WAIT), 68 - SCORE_DROP_THRESHOLD, None, True),
+        # Score drop within Wait (held for two runs: see the persistence test)
         ((68, Band.WAIT), 68 - SCORE_DROP_THRESHOLD + 1, None, False),
         # Big drop but still Hang Now: not worth an email
         ((100, Band.HANG_NOW), 72, None, False),
@@ -37,6 +36,26 @@ def test_deterioration_vs_baseline(baseline, new_score, veto, alerts):
     assert (alert is not None) is alerts
 
 
+@pytest.mark.parametrize(
+    ("prev_score", "alerts"),
+    [
+        (None, False),  # first run after a method change: not yet confirmed
+        (60, False),  # one-run dip: the previous run was close to the baseline
+        (68 - SCORE_DROP_THRESHOLD, True),  # the drop held for two runs
+    ],
+)
+def test_score_drop_must_hold_for_two_runs(prev_score, alerts):
+    session = make_session(baseline_score=68, baseline_band=Band.WAIT)
+    snapshot = make_snapshot(68 - SCORE_DROP_THRESHOLD, prev_score=prev_score)
+    assert (decide_alert(session, snapshot, NOW) is not None) is alerts
+
+
+def test_band_drop_and_rain_still_alert_immediately():
+    session = make_session(baseline_score=85, baseline_band=Band.HANG_NOW)
+    assert decide_alert(session, make_snapshot(60, prev_score=None), NOW) is not None
+    assert decide_alert(session, make_snapshot(80, veto_reason=RAIN), NOW) is not None
+
+
 def test_rain_alerts_even_when_baseline_already_do_not_hang():
     session = make_session(baseline_score=45, baseline_band=Band.DO_NOT_HANG)
     alert = decide_alert(session, make_snapshot(20, veto_reason=RAIN), NOW)
@@ -47,6 +66,20 @@ def test_rain_alerts_even_when_baseline_already_do_not_hang():
 def test_no_repeat_alert_while_rain_continues():
     session = make_session(baseline_score=20, baseline_band=Band.DO_NOT_HANG, baseline_veto=True)
     assert decide_alert(session, make_snapshot(15, veto_reason=RAIN), NOW) is None
+
+
+def test_baseline_from_another_method_only_alerts_on_rain():
+    # The session was baselined before a deploy changed the scoring method.
+    session = make_session(baseline_score=85, baseline_band=Band.HANG_NOW,
+                           baseline_method="weighted-v1")
+    drop = make_snapshot(30)
+    rain = make_snapshot(30, veto_reason=RAIN)
+    for snapshot in (drop, rain):
+        snapshot.result.method = "dp-percentile-2024"
+    assert decide_alert(session, drop, NOW) is None
+    alert = decide_alert(session, rain, NOW)
+    assert alert is not None and alert.reason == RAIN
+    assert alert.new_method == "dp-percentile-2024"  # the notifier re-baselines on it
 
 
 def test_slow_decline_is_caught_against_baseline():
@@ -96,7 +129,7 @@ class TestCooldown:
             last_alert_at=NOW - ALERT_COOLDOWN + timedelta(minutes=1),
             last_alert_band=Band.WAIT,
         )
-        assert decide_alert(session, make_snapshot(50), NOW) is None
+        assert decide_alert(session, make_snapshot(50, prev_score=50), NOW) is None
 
     def test_allows_after_cooldown(self):
         session = make_session(
@@ -105,7 +138,7 @@ class TestCooldown:
             last_alert_at=NOW - ALERT_COOLDOWN,
             last_alert_band=Band.WAIT,
         )
-        assert decide_alert(session, make_snapshot(50), NOW) is not None
+        assert decide_alert(session, make_snapshot(50, prev_score=50), NOW) is not None
 
     def test_drop_to_do_not_hang_bypasses_cooldown(self):
         session = make_session(

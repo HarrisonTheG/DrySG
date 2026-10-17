@@ -70,6 +70,9 @@ class IngestionService:
                 skipped.append(area.area)
                 continue
             previous = self._snapshots.get(area.area)
+            # A score from another method (e.g. before a table rebuild) is not comparable.
+            if previous is not None and previous.result.method != result.method:
+                previous = None
             snapshots.append(
                 AreaSnapshot(
                     **area.model_dump(),

@@ -11,6 +11,7 @@ __pycache__/
 .ruff_cache/
 build/
 dist/
+.cache/
 
-# Web
+# Local environment (real values live here, never in .env.example)
 .env

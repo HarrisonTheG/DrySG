@@ -1,0 +1,5 @@
+# Copy to terraform.tfvars (gitignored) and fill in.
+ses_sender = "you@example.com"
+
+# From your OneMap account. Expires after about 3 days, see "Renewing the OneMap token" in README.md.
+onemap_token = ""

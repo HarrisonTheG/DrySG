@@ -14,6 +14,7 @@ from moto import mock_aws
 from pydantic import ValidationError
 
 from drysg.core.locations import AreaLocation, PostalLocation
+from drysg.core.scoring import SCORE_METHOD
 from drysg.data import (
     DataUnavailableError,
     IngestionService,
@@ -83,6 +84,23 @@ def test_ingestion_roundtrip_previous_scores_and_request_count(database):
     assert repo.get("not an area") is None
 
 
+def test_previous_score_from_another_method_is_not_compared(database):
+    repo = AreaSnapshotRepository(database, "snapshots")
+    with httpx.Client(transport=httpx.MockTransport(fixture_response)) as http:
+        service = IngestionService(NeaClient(http), repo)
+        first = service.run(now=NOW)
+        # Pretend the stored snapshots came from the old weighted scorer.
+        repo.save_all(
+            [
+                s.model_copy(update={"result": s.result.model_copy(update={"method": None})})
+                for s in first.snapshots
+            ]
+        )
+        second = service.run(now=NOW + timedelta(minutes=1))
+    assert all(s.result.method == SCORE_METHOD for s in second.snapshots)
+    assert all(s.prev_score is None and s.prev_band is None for s in second.snapshots)
+
+
 def test_failed_refresh_keeps_previous_snapshot(database):
     repo = AreaSnapshotRepository(database, "snapshots")
     with httpx.Client(transport=httpx.MockTransport(fixture_response)) as http:
@@ -114,16 +132,21 @@ def test_partial_feed_failure_preserves_isaac_scoring(database, has_forecast):
         return response
 
     with httpx.Client(transport=httpx.MockTransport(respond)) as http:
-        result = IngestionService(
+        service = IngestionService(
             NeaClient(http),
             AreaSnapshotRepository(database, "snapshots"),
-        ).run(now=NOW)
+        )
+        if not has_forecast:
+            # Neither rainfall nor forecast: the rain veto cannot be decided, so no
+            # area is scored and nothing is written.
+            with pytest.raises(DataUnavailableError):
+                service.run(now=NOW)
+            return
+        result = service.run(now=NOW)
     assert result.missing_feeds == ("rainfall",)
     assert all(s.conditions.rainfall_mm is None for s in result.snapshots)
-    if has_forecast:
-        assert all(s.result.sub_scores.rain is not None for s in result.snapshots)
-    else:
-        assert all(s.result.degraded and s.result.score <= 69 for s in result.snapshots)
+    # The forecast alone decides the rain veto, and the score still comes from DP.
+    assert all(s.result.dp is not None for s in result.snapshots)
 
 
 def test_database_failure_propagates(database):

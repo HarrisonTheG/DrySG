@@ -53,6 +53,7 @@ snapshot's `updated_at` timestamp.
   "new_score": 32,
   "new_band": "Do Not Hang",
   "new_veto": true,
+  "new_method": "dp-percentile-2024",
   "reason": "Rain detected at nearby station",
   "snapshot_ts": "2026-10-04T14:05:00+08:00"
 }
@@ -61,7 +62,7 @@ snapshot's `updated_at` timestamp.
 Delivery is at-least-once. The notifier dedupes on `alert_id` with a conditional put to `AlertLog`. If SES fails, the notifier reports the message in `batchItemFailures`, so only that message is retried.
 
 ## Alert email links
-The "stop monitoring" link in alert emails is `{APP_BASE_URL}/stop?session={session_id}`. **The frontend needs a `/stop` route** that calls `DELETE /monitoring/{session_id}`.
+The "stop monitoring" link in alert emails is `{APP_BASE_URL}/stop?session={session_id}`. **The frontend needs a `/stop` route** that calls `DELETE /laundry-sessions/{session_id}`.
 
 ## IAM (least privilege per function)
 | Lambda | Permissions |
@@ -75,6 +76,22 @@ All three also need CloudWatch Logs (`AWSLambdaBasicExecutionRole`). Outbound in
 Stream A's `AreaSnapshotRepository.list_areas()` also requires `dynamodb:Scan` on
 AreaSnapshot for the API's area catalogue. Ingestion currently uses consistent
 `GetItem` reads and `BatchWriteItem` writes, within the permissions listed above.
+
+### Session API deployment
+
+The implemented session routes additionally need `TABLE_USER` and
+`TABLE_MONITORING_SESSION` on the API Lambda. With either absent, session routes return
+`503 DATA_UNAVAILABLE`; recommendation remains available. Grant `dynamodb:GetItem` and
+`dynamodb:UpdateItem` on User, and `dynamodb:GetItem`, `dynamodb:PutItem`,
+`dynamodb:UpdateItem` on MonitoringSession. Session creation uses `TransactWriteItems`;
+IAM authorizes the underlying PutItem/UpdateItem actions on the participating tables.
+The API does not yet implement verification emails and needs no SES permission for
+these three session routes. `User.verified` must already be true; SES identity
+verification alone does not set this application-level flag.
+
+The API Gateway branch must include these variables and permissions before session
+routes can be deployed. No new tables or indexes are needed: the user pointer is a
+regular non-key attribute. Rebuild the Lambda zip after installing backend dependencies.
 
 ## External endpoints called
 | Caller | URL |

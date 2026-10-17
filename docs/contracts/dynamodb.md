@@ -41,6 +41,7 @@ No TTL. Postal codes rarely move, and the nearest area can be recomputed if area
 | `token_hash` | S | SHA-256 of the verification token. The raw token is never stored |
 | `token_expires_at` | S | ISO timestamp (proposed: 24 h after issue) |
 | `created_at`, `verified_at` | S | ISO timestamps |
+| `active_session_id` | S | Optional pointer to the latest API-created session. Updated transactionally with creating the new session and stopping the previous active one. It may point to a stopped or TTL-deleted session; the next start replaces it |
 
 ## MonitoringSession
 | Attribute | Type | Notes |
@@ -54,6 +55,7 @@ No TTL. Postal codes rarely move, and the nearest area can be recomputed if area
 | `baseline_score` | N | Score the user was last told about. **The API sets it from the area snapshot at session start**, and the notifier updates it after each alert |
 | `baseline_band` | S | Band matching `baseline_score` |
 | `baseline_veto` | BOOL | Whether the baseline state was a rain veto |
+| `baseline_method` | S | `result.method` of the baseline snapshot, e.g. `dp-percentile-2024`. Score and band alerts only fire when it matches the new snapshot's method; a rain veto alerts either way |
 | `last_alert_at` | S | ISO timestamp, used for cooldown |
 | `last_alert_band` | S | Band at the last alert, so an escalation to Do Not Hang can bypass the cooldown |
 | `expires_at` | **N** | Epoch seconds, **TTL attribute** (proposed: started_at + 12 h) |
@@ -64,7 +66,13 @@ Alerts compare new conditions with the session's **baseline**, not with the prev
 
 **GSI `area-status-index`**: PK `area`, SK `status`, projection ALL. The alert trigger queries `area = :a AND status = 'active'` for each deteriorated area.
 
-**GSI `email-index`**: PK `email`, projection KEYS_ONLY. Used to stop the previous active session when a user starts a new one.
+**GSI `email-index`**: PK `email`, projection KEYS_ONLY. Available for email-based lookup.
+The session API uses a consistent read of `User.active_session_id` instead of this
+eventually consistent index when replacing a session. A conditional transaction updates
+the verified user's pointer, creates the session and stops its active predecessor together.
+Concurrent requests re-read and retry up to three times, then return `409 SESSION_CONFLICT`.
+Session writers must maintain this pointer to participate in the one-active-session rule;
+manually seeded smoke-test rows are not managed by the API replacement flow.
 
 DynamoDB TTL deletion can lag by up to ~48 h, so the alert trigger must also filter `expires_at > now`.
 
@@ -93,4 +101,4 @@ An idempotency and audit trail for alerts. It is also used in evaluation to coun
 | Notifier | Conditional Put + Update alert status; conditional Update of the session baseline (only if still active) | AlertLog, MonitoringSession |
 | API `/recommendation` | Get postal → Get snapshot | PostalCache, AreaSnapshot |
 | API `/users*` | Get/Put/Update user | User |
-| API `/monitoring*` | Put/Get/Update session (set the baseline from the snapshot at start), Query by email | MonitoringSession, `email-index` |
+| API `/laundry-sessions*` | Consistent Get user/session; transactional Put session + Update user pointer and previous session; conditional Update on stop | User, MonitoringSession |
