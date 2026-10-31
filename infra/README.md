@@ -24,8 +24,8 @@ Notifier Lambda ──▶ SES email to the user, logged in AlertLog (dedupe)
 | `sqs.tf` | Alerts queue + dead-letter queue |
 | `lambda_ingest.tf` | Ingest Lambda, its IAM role, 5-minute EventBridge schedule |
 | `lambda_notifier.tf` | Notifier Lambda, its IAM role, SQS trigger |
-| `ses.tf` | Verified sender email for alerts |
-| `lambda_api.tf` | API Lambda and its IAM role |
+| `ses.tf` | Verified sender email for alerts and verification emails |
+| `lambda_api.tf` | API Lambda and its IAM role (including SES, for verification emails) |
 | `api_gateway.tf` | HTTP API in front of the API Lambda |
 | `web_hosting.tf` | S3 bucket for the website files, served through CloudFront |
 
@@ -150,6 +150,16 @@ If it returns `503 DATA_UNAVAILABLE`, the OneMap token is probably missing or ex
 aws logs tail /aws/lambda/drysg-dev-api --since 10m
 ```
 
+### API (email verification)
+Ask for a verification email, using an address verified in SES while in sandbox:
+```
+curl -X POST "$(terraform output -raw api_url)/users" -H "Content-Type: application/json" -d '{"email":"<your verified email>"}'
+```
+It returns `202 {"email": ..., "verified": false}` and emails a link to `<website>/verify?email=...&token=...`. A `503 EMAIL_UNAVAILABLE` means SES refused it: check the API log as above (usually `MessageRejected` for an unverified recipient). Without the website's `/verify` page, confirm by hand with the `email` and `token` from the link:
+```
+curl -X POST "$(terraform output -raw api_url)/users/verify" -H "Content-Type: application/json" -d '{"email":"<email>","token":"<token>"}'
+```
+
 ## Renewing the OneMap token
 The API needs a OneMap token to look up postal codes that aren't cached yet. It expires after about 3 days, and nothing renews it automatically. Until someone does, new postal codes return `503` and cached ones still work.
 
@@ -166,7 +176,8 @@ The API needs a OneMap token to look up postal codes that aren't cached yet. It 
 ## Email (SES) sandbox
 SES starts in **sandbox mode**:
 - It only delivers to **verified** addresses, at about 200 emails/day. Sandbox checks **both** the sender and every recipient.
-- If the notifier log shows `MessageRejected: Email address is not verified`, the address it names isn't verified. It's usually the recipient.
+- This applies to alert emails (notifier) and verification emails (`POST /users` on the API).
+- If the notifier or API log shows `MessageRejected: Email address is not verified`, the address it names isn't verified. It's usually the recipient.
 - To receive test alerts, verify your address: AWS Console → **SES → Identities → Create identity → Email address**, then click the link AWS emails you (check junk).
 - Before real users sign up, request production access in the SES console.
 

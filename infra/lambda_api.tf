@@ -23,7 +23,8 @@ data "aws_iam_policy_document" "api" {
     resources = [aws_dynamodb_table.postal_cache.arn]
   }
 
-  # Session routes: check the user, and keep their active session ID
+  # Session routes: check the user, and keep their active session ID.
+  # Email verification also uses UpdateItem, which creates the user's row.
   statement {
     actions   = ["dynamodb:GetItem", "dynamodb:UpdateItem"]
     resources = [aws_dynamodb_table.user.arn]
@@ -33,6 +34,18 @@ data "aws_iam_policy_document" "api" {
   statement {
     actions   = ["dynamodb:GetItem", "dynamodb:PutItem", "dynamodb:UpdateItem"]
     resources = [aws_dynamodb_table.monitoring_session.arn]
+  }
+
+  # Verification emails (POST /users). In sandbox SES also authorizes against recipient
+  # identities, so allow any identity but only when sending from our sender address
+  statement {
+    actions   = ["ses:SendEmail"]
+    resources = ["arn:aws:ses:${data.aws_region.current.region}:${data.aws_caller_identity.current.account_id}:identity/*"]
+    condition {
+      test     = "StringEquals"
+      variable = "ses:FromAddress"
+      values   = [var.ses_sender]
+    }
   }
 }
 
@@ -65,6 +78,7 @@ resource "aws_lambda_function" "api" {
       TABLE_USER               = aws_dynamodb_table.user.name
       TABLE_MONITORING_SESSION = aws_dynamodb_table.monitoring_session.name
       ONEMAP_TOKEN             = var.onemap_token
+      SES_SENDER               = var.ses_sender
       APP_BASE_URL             = local.app_base_url
       LOG_LEVEL                = "INFO"
     }
