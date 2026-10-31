@@ -4,7 +4,7 @@ AWS Lambda handlers built with FastAPI and Python. Contains the core backend bus
 
 | Lambda | Entry point | Status |
 |---|---|---|
-| API | `handlers/api.py` (FastAPI via Mangum) | Recommendation, health and all three session routes done; user registration/verification not built |
+| API | `handlers/api.py` (FastAPI via Mangum) | Recommendation, health, the three session routes and email verification (`/users`, `/users/verify`) done |
 | Ingest | `handlers/ingest.py` | Done. Every 5 minutes: fetch NEA, score, save snapshots, queue alerts |
 | Notifier | `handlers/notifier.py` | Done. SQS to SES emails |
 
@@ -84,8 +84,7 @@ Options: `--port 8765`, `--host 0.0.0.0`, `--refresh-minutes 5`.
 The runner also creates in-memory User and MonitoringSession tables and seeds
 `local-test@example.com` as verified. Override it with `--test-email user@example.com`.
 This is a local fixture only; the deployed API never auto-verifies users and returns
-`403 EMAIL_NOT_VERIFIED` until their User row has `verified: true`. User registration
-and email verification endpoints remain a separate task.
+`403 EMAIL_NOT_VERIFIED` until the email is verified (next section).
 
 Use Swagger at `/docs`, or send these requests with your HTTP client:
 
@@ -112,8 +111,36 @@ Malformed input returns `400`, unknown session IDs return `404`, and exhausted
 concurrent-start retries return `409`. Errors retain `{error: {code, message}}`.
 
 Deployment requirements and additional table permissions are listed in
-[handlers.md](../docs/contracts/handlers.md#session-api-deployment). The API Gateway
-infra branch still needs to wire these settings. This change does not deploy AWS resources.
+[handlers.md](../docs/contracts/handlers.md#session-api-deployment).
+
+### Email verification
+
+Any other email must be verified first. Locally nothing is emailed: the verification
+link is printed in the API's terminal. Links point at `--app-url`
+(default `http://127.0.0.1:5173`, the Vite dev server).
+
+```http
+POST /users
+Content-Type: application/json
+
+{"email":"you@example.com"}
+```
+
+1. `POST /users` returns `202 {"email", "verified": false}` and sends (or prints) a link:
+   `{APP_BASE_URL}/verify?email=...&token=...`. An already verified email returns
+   `verified: true` and gets no email.
+2. The frontend's `/verify` page reads `email` and `token` from the link and calls
+   `POST /users/verify` with them. It returns `200 {"email", "verified": true}`, and
+   repeating it still returns `200`.
+3. `POST /laundry-sessions` with that email now succeeds.
+
+Links expire after 24 hours, and requesting a new one makes the old one invalid. Only
+the token's SHA-256 hash is stored. Errors: `400 INVALID_EMAIL`, `400 INVALID_TOKEN`
+(wrong, used or expired), `429 RESEND_TOO_SOON` (one email per address per minute), and
+`503 EMAIL_UNAVAILABLE` (SES failed, or `SES_SENDER`/`APP_BASE_URL` not set). In the SES
+sandbox, SES only delivers to addresses verified in SES, so test with one of those.
+See [handlers.md](../docs/contracts/handlers.md#email-verification-deployment) for the
+deployment settings.
 
 ### Recommendation
 

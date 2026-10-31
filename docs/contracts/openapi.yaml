@@ -62,9 +62,12 @@ paths:
     post:
       summary: Register an email and send a verification link
       description: |
-        Idempotent. Re-sending to an unverified email issues a new token.
+        Idempotent. Re-sending to an unverified email issues a new token (the old link
+        stops working); at most one email per address per minute. An already verified
+        email gets `verified: true` and no email. Links expire after 24 hours.
         The emailed link points to the frontend: `{APP_BASE_URL}/verify?email=..&token=..`,
         which then calls `POST /users/verify`.
+        Call this when `POST /laundry-sessions` returns `403 EMAIL_NOT_VERIFIED`.
       operationId: registerUser
       requestBody:
         required: true
@@ -82,10 +85,15 @@ paths:
             application/json:
               schema: { $ref: '#/components/schemas/UserStatus' }
         '400': { $ref: '#/components/responses/BadRequest' }
+        '429': { $ref: '#/components/responses/TooManyRequests' }
+        '503': { $ref: '#/components/responses/EmailUnavailable' }
 
   /users/verify:
     post:
       summary: Confirm email ownership with the emailed token
+      description: |
+        Repeating it after success returns `verified: true` again. A wrong, replaced,
+        used or expired token returns `400 INVALID_TOKEN`.
       operationId: verifyUser
       requestBody:
         required: true
@@ -104,6 +112,7 @@ paths:
             application/json:
               schema: { $ref: '#/components/schemas/UserStatus' }
         '400': { $ref: '#/components/responses/BadRequest' }
+        '503': { $ref: '#/components/responses/EmailUnavailable' }
 
   /laundry-sessions:
     post:
@@ -195,6 +204,19 @@ components:
       content:
         application/json:
           schema: { $ref: '#/components/schemas/Error' }
+    TooManyRequests:
+      description: A verification email was sent less than a minute ago (`RESEND_TOO_SOON`)
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/Error' }
+    EmailUnavailable:
+      description: |
+        The verification email could not be sent, or email is not configured
+        (`EMAIL_UNAVAILABLE`). In the SES sandbox this includes recipients that are not
+        verified in SES.
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/Error' }
 
   schemas:
     Error:
@@ -217,7 +239,9 @@ components:
                 - EMAIL_NOT_VERIFIED
                 - SESSION_NOT_FOUND
                 - SESSION_CONFLICT
+                - RESEND_TOO_SOON
                 - DATA_UNAVAILABLE
+                - EMAIL_UNAVAILABLE
                 - INTERNAL_ERROR
             message: { type: string }
 

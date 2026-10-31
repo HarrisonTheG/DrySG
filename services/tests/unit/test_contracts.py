@@ -185,6 +185,7 @@ def test_generated_openapi_matches_the_contract_file(spec):
         "WeatherConditions",
         "StationSources",
         "LaundrySession",
+        "UserStatus",
     ):
         assert set(generated["components"]["schemas"][name]["properties"]) == set(
             spec["components"]["schemas"][name]["properties"]
@@ -192,15 +193,21 @@ def test_generated_openapi_matches_the_contract_file(spec):
     assert set(
         generated["components"]["schemas"]["RecommendationState"]["enum"]
     ) == set(spec["components"]["schemas"]["RecommendationState"]["enum"])
-    for path, method, status in (
-        ("/laundry-sessions", "post", "201"),
-        ("/laundry-sessions/{id}", "get", "200"),
-        ("/laundry-sessions/{id}", "delete", "200"),
+    for path, method, status, schema in (
+        ("/laundry-sessions", "post", "201", "LaundrySession"),
+        ("/laundry-sessions/{id}", "get", "200", "LaundrySession"),
+        ("/laundry-sessions/{id}", "delete", "200", "LaundrySession"),
+        ("/users", "post", "202", "UserStatus"),
+        ("/users/verify", "post", "200", "UserStatus"),
     ):
         response = generated["paths"][path][method]["responses"][status]
         assert response["content"]["application/json"]["schema"]["$ref"].endswith(
-            "/LaundrySession"
+            f"/{schema}"
         )
+        documented = spec["paths"][path][method]["responses"]
+        assert set(generated["paths"][path][method]["responses"]) - {"422"} <= set(
+            documented
+        ), (path, method)
 
 
 def test_error_codes_used_by_the_api_are_in_the_spec(spec):
@@ -208,9 +215,6 @@ def test_error_codes_used_by_the_api_are_in_the_spec(spec):
     documented = set(error["properties"]["code"]["enum"])
     source = (REPO / "services" / "drysg" / "api" / "app.py").read_text()
     used = set(re.findall(r'"([A-Z_]{6,})"', source))
-    codes = {
-        c
-        for c in used
-        if c.endswith(("_POSTAL_CODE", "_FOUND", "_UNAVAILABLE", "_ERROR"))
-    }
+    codes = used - {"OPTIONS", "DELETE"}  # CORS method names, not error codes
+    assert {"INVALID_TOKEN", "RESEND_TOO_SOON", "EMAIL_UNAVAILABLE"} <= codes
     assert codes <= documented
