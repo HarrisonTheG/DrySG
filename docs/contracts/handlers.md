@@ -68,7 +68,7 @@ The "stop monitoring" link in alert emails is `{APP_BASE_URL}/stop?session={sess
 | Lambda | Permissions |
 |---|---|
 | API | `dynamodb:GetItem/PutItem/UpdateItem/Query` on User, MonitoringSession (+ `email-index`), PostalCache; `GetItem/PutItem` on AreaSnapshot (fallback write); `ses:SendEmail` from `SES_SENDER` |
-| Ingest | `dynamodb:BatchGetItem/BatchWriteItem/GetItem/PutItem` on AreaSnapshot; `dynamodb:Query` on MonitoringSession `area-status-index`; `sqs:SendMessage` on `drysg-alerts` |
+| Ingest | `dynamodb:BatchGetItem/BatchWriteItem/GetItem/PutItem` on AreaSnapshot; `dynamodb:Query` on MonitoringSession `area-status-index`; `dynamodb:UpdateItem` on MonitoringSession (raise baselines); `sqs:SendMessage` on `drysg-alerts` |
 | Notifier | `sqs:ReceiveMessage/DeleteMessage/GetQueueAttributes` on `drysg-alerts`; `dynamodb:PutItem/UpdateItem` on AlertLog; `dynamodb:UpdateItem` on MonitoringSession; `ses:SendEmail` from `SES_SENDER` |
 
 All three also need CloudWatch Logs (`AWSLambdaBasicExecutionRole`). Outbound internet for NEA and OneMap means the Lambdas should **not** be placed in a VPC (or need a NAT if they are).

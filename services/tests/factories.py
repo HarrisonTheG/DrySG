@@ -42,6 +42,7 @@ def make_snapshot(
     veto_reason: str | None = None,
     at: datetime = NOW,
     prev_score: int | None = None,
+    prev_band: Band | None = None,
 ) -> AreaSnapshot:
     return AreaSnapshot(
         area=area,
@@ -57,6 +58,7 @@ def make_snapshot(
             method=SCORE_METHOD,
         ),
         prev_score=prev_score,
+        prev_band=prev_band,
         updated_at=at,
     )
 

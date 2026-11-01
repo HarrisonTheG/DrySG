@@ -1,7 +1,9 @@
 """Alert trigger: called by the ingest Lambda after it writes the new snapshots.
 
 For each area it looks up the active monitoring sessions, applies the pure rules in
-drysg.core.alerts, and queues one SQS message per session that needs an email.
+drysg.core.alerts, and queues one SQS message per session that needs an email. When
+conditions have stayed better than a session's baseline, it moves the baseline up so
+the next decline alerts again.
 """
 
 import logging
@@ -12,9 +14,16 @@ from datetime import datetime
 
 import boto3
 from boto3.dynamodb.conditions import Attr, Key
+from botocore.exceptions import ClientError
 
-from drysg.core.alerts import decide_alert
-from drysg.core.models import AlertMessage, AreaSnapshot, MonitoringSession, SessionStatus
+from drysg.core.alerts import decide_alert, should_raise_baseline
+from drysg.core.models import (
+    AlertMessage,
+    AreaSnapshot,
+    MonitoringSession,
+    ScoreResult,
+    SessionStatus,
+)
 from drysg.db.items import session_from_item, to_epoch
 
 logger = logging.getLogger(__name__)
@@ -28,6 +37,7 @@ class TriggerStats:
     areas_checked: int = 0
     sessions_checked: int = 0
     alerts_queued: int = 0
+    baselines_raised: int = 0
     failed_message_ids: list[str] = field(default_factory=list)
 
 
@@ -45,6 +55,41 @@ def active_sessions(table, area: str, now: datetime) -> Iterator[MonitoringSessi
         if "LastEvaluatedKey" not in page:
             return
         kwargs["ExclusiveStartKey"] = page["LastEvaluatedKey"]
+
+
+def raise_baseline(table, session: MonitoringSession, result: ScoreResult) -> bool:
+    """Move the baseline up to `result`. False if the session ended or its baseline changed.
+
+    The condition on the old baseline stops this from undoing a notifier update made
+    since the session was read.
+    """
+    try:
+        table.update_item(
+            Key={"session_id": session.session_id},
+            UpdateExpression=(
+                "SET baseline_score = :score, baseline_band = :band, "
+                "baseline_veto = :veto, baseline_method = :method"
+            ),
+            ConditionExpression=(
+                "#s = :active AND baseline_score = :old_score AND baseline_band = :old_band"
+            ),
+            ExpressionAttributeNames={"#s": "status"},
+            ExpressionAttributeValues={
+                ":score": result.score,
+                ":band": result.band,
+                ":veto": result.veto,
+                ":method": result.method,
+                ":active": SessionStatus.ACTIVE,
+                ":old_score": session.baseline_score,
+                ":old_band": session.baseline_band,
+            },
+        )
+        return True
+    except ClientError as err:
+        # Don't fail the ingest run; the next run checks the same session again.
+        if err.response["Error"]["Code"] != "ConditionalCheckFailedException":
+            logger.warning("Could not raise baseline of %s: %s", session.session_id, err)
+        return False
 
 
 def send_alerts(sqs, queue_url: str, messages: list[AlertMessage]) -> list[str]:
@@ -83,6 +128,10 @@ def run_alert_trigger(
             alert = decide_alert(session, snapshot, now)
             if alert is not None:
                 messages.append(alert)
+            elif should_raise_baseline(session, snapshot, now) and raise_baseline(
+                sessions_table, session, snapshot.result
+            ):
+                stats.baselines_raised += 1
 
     if messages:
         stats.failed_message_ids = send_alerts(sqs, queue_url, messages)

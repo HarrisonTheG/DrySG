@@ -53,7 +53,7 @@ No TTL. Postal codes rarely move, and the nearest area can be recomputed if area
 | `area` | S | Copied from PostalCache at start |
 | `status` | S | `active` \| `stopped` \| `expired` |
 | `started_at`, `stopped_at` | S | ISO timestamps |
-| `baseline_score` | N | Score the user was last told about. **The API sets it from the area snapshot at session start**, and the notifier updates it after each alert |
+| `baseline_score` | N | Score the user was last told about. **The API sets it from the area snapshot at session start**, the notifier moves it down after each alert, and the alert trigger moves it up once the band has been better for two runs |
 | `baseline_band` | S | Band matching `baseline_score` |
 | `baseline_veto` | BOOL | Whether the baseline state was a rain veto |
 | `baseline_method` | S | `result.method` of the baseline snapshot, e.g. `dp-percentile-2024`. Score and band alerts only fire when it matches the new snapshot's method; a rain veto alerts either way |
@@ -63,7 +63,7 @@ No TTL. Postal codes rarely move, and the nearest area can be recomputed if area
 
 The item shape is `drysg.db.items.session_to_item(MonitoringSession)` / `session_from_item`.
 
-Alerts compare new conditions with the session's **baseline**, not with the previous 5-minute snapshot. This catches slow declines and prevents repeat alerts when a score hovers around a threshold. The rules are in `drysg/core/alerts.py`.
+Alerts compare new conditions with the session's **baseline**, not with the previous 5-minute snapshot. This catches slow declines and prevents repeat alerts when a score hovers around a threshold. Once the band has been better than the baseline for two runs in a row (e.g. rain stopped), the trigger raises the baseline to the new state, so the next decline or rain alerts again. Rain returning after a single dry run also alerts, at most every 30 minutes. The rules are in `drysg/core/alerts.py`.
 
 **GSI `area-status-index`**: PK `area`, SK `status`, projection ALL. The alert trigger queries `area = :a AND status = 'active'` for each deteriorated area.
 
@@ -98,7 +98,7 @@ An idempotency and audit trail for alerts. It is also used in evaluation to coun
 | Who | Operation | Table / index |
 |---|---|---|
 | Ingest | BatchGet all snapshots (for prev score), BatchWrite all snapshots | AreaSnapshot |
-| Alert trigger | Query active sessions by area | MonitoringSession / `area-status-index` |
+| Alert trigger | Query active sessions by area; conditional Update to raise a session baseline (only if still active and unchanged) | MonitoringSession / `area-status-index` |
 | Notifier | Conditional Put + Update alert status; conditional Update of the session baseline (only if still active) | AlertLog, MonitoringSession |
 | API `/recommendation` | Get postal → Get snapshot | PostalCache, AreaSnapshot |
 | API `/users*` | Get/Put/Update user | User |

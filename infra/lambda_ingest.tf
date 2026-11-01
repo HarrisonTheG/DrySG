@@ -42,6 +42,12 @@ data "aws_iam_policy_document" "ingest" {
     resources = ["${aws_dynamodb_table.monitoring_session.arn}/index/area-status-index"]
   }
 
+  # Alert trigger: move a session's baseline up once conditions have improved
+  statement {
+    actions   = ["dynamodb:UpdateItem"]
+    resources = [aws_dynamodb_table.monitoring_session.arn]
+  }
+
   # Also covers SendMessageBatch
   statement {
     actions   = ["sqs:SendMessage"]
