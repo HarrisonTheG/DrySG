@@ -1,22 +1,45 @@
 import { zodResolver } from "@hookform/resolvers/zod"
-import { BellRing, CheckCircle2, Mail, Square } from "lucide-react"
+import { BellRing, CheckCircle2, Mail, MailCheck, Square } from "lucide-react"
 import { useForm } from "react-hook-form"
 import { z } from "zod"
 import { format } from "date-fns"
+import { useNow } from "@/hooks/useNow"
+import type { PendingStart } from "@/lib/storage"
 import type { LaundrySession } from "@/types/api"
 
 const schema = z.object({ email: z.string().email("Enter a valid email address") })
 type Values = z.infer<typeof schema>
 
+/** The backend allows one verification email per address per minute. */
+const RESEND_INTERVAL_MS = 60_000
+
 interface Props {
   session?: LaundrySession
+  pending?: PendingStart
+  notConfirmedYet?: boolean
   isStarting?: boolean
   isStopping?: boolean
+  isResending?: boolean
   onStart: (email: string) => Promise<void>
   onStop: () => Promise<void>
+  onConfirmed: () => Promise<void>
+  onResend: () => Promise<void>
+  onChangeEmail: () => void
 }
 
-export function MonitoringCard({ session, isStarting, isStopping, onStart, onStop }: Props) {
+export function MonitoringCard({
+  session,
+  pending,
+  notConfirmedYet,
+  isStarting,
+  isStopping,
+  isResending,
+  onStart,
+  onStop,
+  onConfirmed,
+  onResend,
+  onChangeEmail,
+}: Props) {
   const { register, handleSubmit, formState: { errors } } = useForm<Values>({ resolver: zodResolver(schema) })
 
   if (session?.active) {
@@ -51,6 +74,20 @@ export function MonitoringCard({ session, isStarting, isStopping, onStart, onSto
     )
   }
 
+  if (pending) {
+    return (
+      <CheckInbox
+        pending={pending}
+        notConfirmedYet={notConfirmedYet}
+        isStarting={isStarting}
+        isResending={isResending}
+        onConfirmed={onConfirmed}
+        onResend={onResend}
+        onChangeEmail={onChangeEmail}
+      />
+    )
+  }
+
   return (
     <section className="rounded-3xl border border-slate-200 bg-white p-5 shadow-sm">
       <div className="flex items-start gap-3">
@@ -75,6 +112,63 @@ export function MonitoringCard({ session, isStarting, isStopping, onStart, onSto
             </div>
             {errors.email && <p className="mt-2 text-sm text-red-600">{errors.email.message}</p>}
           </form>
+        </div>
+      </div>
+    </section>
+  )
+}
+
+function CheckInbox({
+  pending,
+  notConfirmedYet,
+  isStarting,
+  isResending,
+  onConfirmed,
+  onResend,
+  onChangeEmail,
+}: Pick<Props, "notConfirmedYet" | "isStarting" | "isResending" | "onConfirmed" | "onResend" | "onChangeEmail"> & { pending: PendingStart }) {
+  const now = useNow(1000)
+  const waitSeconds = Math.max(0, Math.ceil((pending.sentAt + RESEND_INTERVAL_MS - now) / 1000))
+  const countdown = `${Math.floor(waitSeconds / 60)}:${String(waitSeconds % 60).padStart(2, "0")}`
+
+  return (
+    <section className="rounded-3xl border border-blue-200 bg-blue-50 p-5 shadow-sm">
+      <div className="flex items-start gap-3">
+        <div className="grid size-11 shrink-0 place-items-center rounded-2xl bg-blue-100 text-blue-700">
+          <MailCheck className="size-5" />
+        </div>
+        <div className="min-w-0 flex-1">
+          <div className="text-sm font-semibold uppercase tracking-wide text-blue-700">Confirm your email</div>
+          <h3 className="mt-1 text-xl font-bold text-slate-950">Check your inbox</h3>
+          <p className="mt-2 text-sm leading-6 text-slate-600">
+            We sent a confirmation link to <span className="font-medium text-slate-800">{pending.email}</span>. Open it, then come back here, or start monitoring from that page.
+          </p>
+          {notConfirmedYet && (
+            <p className="mt-3 rounded-2xl bg-amber-100 px-3 py-2 text-sm text-amber-900">
+              Not confirmed yet. Check your inbox, including the junk folder.
+            </p>
+          )}
+          <button
+            type="button"
+            onClick={onConfirmed}
+            disabled={isStarting}
+            className="mt-5 h-12 rounded-2xl bg-slate-950 px-5 font-semibold text-white transition hover:bg-slate-800 disabled:opacity-60"
+          >
+            {isStarting ? "Starting..." : "I've confirmed – start monitoring"}
+          </button>
+          <div className="mt-4 flex flex-wrap gap-x-5 gap-y-2 text-sm">
+            <button
+              type="button"
+              onClick={onResend}
+              disabled={waitSeconds > 0 || isResending}
+              className="font-semibold text-blue-700 hover:underline disabled:cursor-not-allowed disabled:text-slate-400 disabled:no-underline"
+            >
+              {isResending ? "Sending..." : waitSeconds > 0 ? `Resend email (available in ${countdown})` : "Resend email"}
+            </button>
+            <button type="button" onClick={onChangeEmail} className="font-semibold text-slate-600 hover:underline">
+              Use a different email
+            </button>
+          </div>
         </div>
       </div>
     </section>

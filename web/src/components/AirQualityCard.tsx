@@ -10,8 +10,8 @@ export function AirQualityCard({ recommendation }: { recommendation: DryingRecom
         <div>
           <div className="text-sm font-semibold text-slate-500">Air quality</div>
           <div className="mt-1 flex items-baseline gap-2">
-            <span className="text-3xl font-bold text-slate-950">PSI {recommendation.conditions.psi}</span>
-            <span className="text-sm font-semibold text-slate-600">{recommendation.conditions.psiBand}</span>
+            <span className="text-3xl font-bold text-slate-950">PSI {recommendation.conditions.psi ?? "—"}</span>
+            <span className="text-sm font-semibold text-slate-600">{recommendation.conditions.psiBand ?? "Unavailable"}</span>
           </div>
         </div>
         <div className={`grid size-11 place-items-center rounded-2xl ${warning ? "bg-amber-100 text-amber-700" : "bg-emerald-100 text-emerald-700"}`}>

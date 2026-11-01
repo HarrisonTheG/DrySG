@@ -14,8 +14,7 @@ info:
     snake_case; the API layer maps between them. Scoring method and full contract:
     lambda-backend.md.
 
-    Implementation status: recommendation and laundry-session routes are implemented.
-    `/users` and `/users/verify` are specified but not built yet.
+    Implementation status: all routes below are implemented.
 servers:
   - url: http://localhost:8000
     description: Local FastAPI (uvicorn), see services/scripts/run_api_local.py

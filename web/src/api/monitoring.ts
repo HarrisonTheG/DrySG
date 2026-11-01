@@ -1,10 +1,7 @@
 import { api } from "@/api/axios"
-import type { LaundrySession } from "@/types/api"
+import type { LaundrySession, StartLaundrySessionInput } from "@/types/api"
 
-export async function startLaundrySession(input: {
-  postalCode: string
-  email: string
-}) {
+export async function startLaundrySession(input: StartLaundrySessionInput) {
   const { data } = await api.post<LaundrySession>(
     "/laundry-sessions",
     input,
@@ -12,6 +9,16 @@ export async function startLaundrySession(input: {
   return data
 }
 
+export async function getLaundrySession(id: string) {
+  const { data } = await api.get<LaundrySession>(
+    `/laundry-sessions/${encodeURIComponent(id)}`,
+  )
+  return data
+}
+
 export async function stopLaundrySession(id: string) {
-  await api.delete(`/laundry-sessions/${id}`)
+  const { data } = await api.delete<LaundrySession>(
+    `/laundry-sessions/${encodeURIComponent(id)}`,
+  )
+  return data
 }

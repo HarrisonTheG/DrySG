@@ -10,16 +10,20 @@ const schema = z.object({
 type FormValues = z.infer<typeof schema>
 
 interface Props {
+  defaultValue?: string
   loading?: boolean
   onSubmit: (postalCode: string) => void
 }
 
-export function PostalCodeForm({ loading, onSubmit }: Props) {
+export function PostalCodeForm({ defaultValue, loading, onSubmit }: Props) {
   const {
     register,
     handleSubmit,
     formState: { errors },
-  } = useForm<FormValues>({ resolver: zodResolver(schema) })
+  } = useForm<FormValues>({
+    resolver: zodResolver(schema),
+    defaultValues: { postalCode: defaultValue ?? "" },
+  })
 
   return (
     <form

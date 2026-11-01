@@ -8,7 +8,9 @@ export function EmptyState() {
       <p className="mx-auto mt-2 max-w-lg leading-7 text-slate-600">
         Enter a Singapore postal code to get a location-aware recommendation using nearby observations, the NEA forecast and regional PSI.
       </p>
-      <p className="mt-4 text-xs text-slate-400">Mock demo: endings 0-2 = Hang Now, 3 = PSI warning, 4-6 = Wait, 7-9 = rain veto.</p>
+      {import.meta.env.VITE_USE_MOCK_API === "true" && (
+        <p className="mt-4 text-xs text-slate-400">Mock demo: endings 0-2 = Hang Now, 3 = PSI warning, 4-6 = Wait, 7-9 = rain veto.</p>
+      )}
     </section>
   )
 }

@@ -1,9 +1,11 @@
 import { Clock3, Database, MapPinned } from "lucide-react"
-import { formatDistanceToNowStrict } from "date-fns"
+import { formatDistanceStrict } from "date-fns"
+import { useNow } from "@/hooks/useNow"
 import type { DryingRecommendation } from "@/types/api"
 
 export function StatusInfo({ recommendation }: { recommendation: DryingRecommendation }) {
-  const ageMinutes = Math.floor((Date.now() - new Date(recommendation.updatedAt).getTime()) / 60_000)
+  const now = useNow(30_000)
+  const ageMinutes = Math.floor((now - new Date(recommendation.updatedAt).getTime()) / 60_000)
   const stale = ageMinutes > 10
 
   return (
@@ -14,7 +16,7 @@ export function StatusInfo({ recommendation }: { recommendation: DryingRecommend
           <div>
             <div className="font-semibold text-slate-800">Data freshness</div>
             <div className={stale ? "text-amber-700" : "text-slate-500"}>
-              {stale ? "Weather data may be delayed" : `Updated ${formatDistanceToNowStrict(new Date(recommendation.updatedAt), { addSuffix: true })}`}
+              {stale ? "Weather data may be delayed" : `Updated ${formatDistanceStrict(new Date(recommendation.updatedAt), now, { addSuffix: true })}`}
             </div>
           </div>
         </div>
