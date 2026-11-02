@@ -2,6 +2,7 @@
 
 from dataclasses import dataclass
 from html import escape
+from urllib.parse import urlencode
 
 from drysg.core.models import AlertMessage, Band
 
@@ -15,6 +16,31 @@ class EmailContent:
 
 def stop_url(base_url: str, session_id: str) -> str:
     return f"{base_url.rstrip('/')}/stop?session={session_id}"
+
+
+def verify_url(base_url: str, email: str, token: str) -> str:
+    return f"{base_url.rstrip('/')}/verify?{urlencode({'email': email, 'token': token})}"
+
+
+def render_verification(email: str, token: str, base_url: str, hours_valid: int) -> EmailContent:
+    link = verify_url(base_url, email, token)
+    subject = "DrySG: confirm your email"
+    intro = "Confirm your email so DrySG can alert you when drying conditions get worse."
+    text = (
+        f"{intro}\n\n"
+        f"Confirm: {link}\n\n"
+        f"This link expires in {hours_valid} hours. "
+        "If you didn't ask for this, you can ignore this email.\n"
+    )
+    html = (
+        '<div style="font-family:Arial,sans-serif;max-width:520px">'
+        f'<h2 style="margin:0 0 12px">{escape(intro)}</h2>'
+        f'<p><a href="{escape(link)}">Confirm my email</a></p>'
+        f"<p>This link expires in {hours_valid} hours. "
+        "If you didn't ask for this, you can ignore this email.</p>"
+        "</div>"
+    )
+    return EmailContent(subject=subject, text=text, html=html)
 
 
 def render_alert(msg: AlertMessage, base_url: str) -> EmailContent:

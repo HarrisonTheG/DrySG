@@ -107,3 +107,31 @@ class LaundrySession(BaseModel):
             "Omitted when no alert state has been recorded."
         ),
     )
+
+
+class RegisterUser(BaseModel):
+    """Ask for a verification link to be emailed."""
+
+    email: str = Field(json_schema_extra={"format": "email"})
+
+    @field_validator("email", mode="before")
+    @classmethod
+    def validate_email(cls, value: str) -> str:
+        return normalize_email(value)
+
+
+class VerifyUser(BaseModel):
+    """Confirm an email with the token from the emailed link."""
+
+    email: str = Field(json_schema_extra={"format": "email"})
+    token: str = Field(min_length=1, max_length=256)
+
+    @field_validator("email", mode="before")
+    @classmethod
+    def validate_email(cls, value: str) -> str:
+        return normalize_email(value)
+
+
+class UserStatus(BaseModel):
+    email: str = Field(json_schema_extra={"format": "email"})
+    verified: bool

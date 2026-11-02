@@ -36,13 +36,22 @@ from drysg.sessions import (
     SessionNotFoundError,
     SessionService,
 )
+from drysg.users import (
+    EmailUnavailableError,
+    InvalidTokenError,
+    ResendTooSoonError,
+    UserService,
+)
 
 from .models import (
     ApiError,
     DryingRecommendation,
     ErrorBody,
     LaundrySession,
+    RegisterUser,
     StartLaundrySession,
+    UserStatus,
+    VerifyUser,
 )
 from .recommendation import SnapshotIncompleteError, to_recommendation
 from .sessions import to_laundry_session
@@ -137,6 +146,7 @@ class ApiDeps:
     refresh: Callable[[], None] | None = None
     clock: Callable[[], datetime] = lambda: datetime.now(UTC)
     sessions: SessionService | None = None
+    users: UserService | None = None
 
 
 def _fresh_snapshot(deps: ApiDeps, area: str) -> AreaSnapshot:
@@ -202,26 +212,34 @@ def create_app(
     async def handle_problem(_: Request, exc: ApiProblem) -> JSONResponse:
         return error_response(exc.status, exc.code, exc.message)
 
-    session_errors = {
+    domain_errors = {
         InvalidEmailError: (400, "INVALID_EMAIL"),
         InvalidSessionIdError: (400, "INVALID_SESSION_ID"),
+        InvalidTokenError: (400, "INVALID_TOKEN"),
         EmailNotVerifiedError: (403, "EMAIL_NOT_VERIFIED"),
         SessionNotFoundError: (404, "SESSION_NOT_FOUND"),
         ConcurrentSessionUpdateError: (409, "SESSION_CONFLICT"),
+        ResendTooSoonError: (429, "RESEND_TOO_SOON"),
+        EmailUnavailableError: (503, "EMAIL_UNAVAILABLE"),
     }
 
-    async def handle_session_error(_: Request, exc: Exception) -> JSONResponse:
-        status, code = session_errors[type(exc)]
+    async def handle_domain_error(_: Request, exc: Exception) -> JSONResponse:
+        status, code = domain_errors[type(exc)]
         return error_response(status, code, str(exc))
 
-    for exception in session_errors:
-        app.add_exception_handler(exception, handle_session_error)
+    for exception in domain_errors:
+        app.add_exception_handler(exception, handle_domain_error)
 
     @app.exception_handler(RequestValidationError)
     async def handle_validation(
         request: Request, exc: RequestValidationError
     ) -> JSONResponse:
-        if request.url.path != "/laundry-sessions":
+        required = {
+            "/laundry-sessions": "A JSON email and postalCode are required",
+            "/users": "A JSON email is required",
+            "/users/verify": "A JSON email and token are required",
+        }.get(request.url.path)
+        if required is None:
             return await request_validation_exception_handler(request, exc)
         fields = {error["loc"][-1] for error in exc.errors()}
         if "email" in fields:
@@ -232,9 +250,11 @@ def create_app(
             return error_response(
                 400, "INVALID_POSTAL_CODE", "postalCode must be six digits"
             )
-        return error_response(
-            400, "INVALID_REQUEST", "A JSON email and postalCode are required"
-        )
+        if "token" in fields:
+            return error_response(
+                400, "INVALID_TOKEN", "This verification link is invalid or has expired"
+            )
+        return error_response(400, "INVALID_REQUEST", required)
 
     # Unexpected errors are caught in a middleware rather than an Exception handler:
     # Starlette runs Exception handlers outside every middleware, so their 500s would
@@ -344,6 +364,38 @@ def create_app(
         """Stop monitoring; repeated requests return the same inactive state."""
         now = deps.clock()
         return to_laundry_session(session_service(deps).stop(session_id, now=now), now)
+
+    def user_service(deps: ApiDeps) -> UserService:
+        if deps.users is None:
+            raise ApiProblem(
+                503, "EMAIL_UNAVAILABLE", "Email verification is not configured"
+            )
+        return deps.users
+
+    @app.post(
+        "/users",
+        status_code=202,
+        response_model=UserStatus,
+        responses={status: {"model": ApiError} for status in (400, 429, 503)},
+    )
+    def register_user(
+        body: RegisterUser, deps: Annotated[ApiDeps, Depends(get_deps)]
+    ) -> UserStatus:
+        """Email a verification link. An already verified email gets no email."""
+        status = user_service(deps).register(body.email, now=deps.clock())
+        return UserStatus(email=status.email, verified=status.verified)
+
+    @app.post(
+        "/users/verify",
+        response_model=UserStatus,
+        responses={status: {"model": ApiError} for status in (400, 503)},
+    )
+    def verify_user(
+        body: VerifyUser, deps: Annotated[ApiDeps, Depends(get_deps)]
+    ) -> UserStatus:
+        """Confirm the email with the emailed token."""
+        status = user_service(deps).verify(body.email, body.token, now=deps.clock())
+        return UserStatus(email=status.email, verified=status.verified)
 
     @app.get("/health", include_in_schema=False)
     def health() -> dict[str, str]:

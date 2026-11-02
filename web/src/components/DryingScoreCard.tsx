@@ -30,11 +30,21 @@ export function DryingScoreCard({ recommendation }: { recommendation: DryingReco
               {meta.label}
             </span>
             <span className="text-sm text-slate-500">{recommendation.areaName}</span>
+            {recommendation.degraded && (
+              <span
+                title="A weather reading was missing, so a typical value was used for it."
+                className="inline-flex rounded-full bg-slate-100 px-3 py-1 text-xs font-semibold text-slate-600 ring-1 ring-slate-200"
+              >
+                Estimate
+              </span>
+            )}
           </div>
 
           <h2 className="text-2xl font-bold tracking-tight text-slate-950">{meta.headline}</h2>
           <p className="mt-2 max-w-2xl leading-7 text-slate-600">{recommendation.summary}</p>
-          <p className="mt-2 text-sm font-medium text-blue-700">{recommendation.percentileDescription}</p>
+          {recommendation.percentileDescription && (
+            <p className="mt-2 text-sm font-medium text-blue-700">{recommendation.percentileDescription}</p>
+          )}
 
           <div className="mt-5 h-2.5 overflow-hidden rounded-full bg-slate-100">
             <div className={`h-full rounded-full transition-all ${meta.barClass}`} style={{ width: `${recommendation.score}%` }} />

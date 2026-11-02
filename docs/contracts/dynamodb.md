@@ -38,8 +38,9 @@ No TTL. Postal codes rarely move, and the nearest area can be recomputed if area
 |---|---|---|
 | `email` (PK) | S | Lower-cased |
 | `verified` | BOOL | |
-| `token_hash` | S | SHA-256 of the verification token. The raw token is never stored |
-| `token_expires_at` | S | ISO timestamp (proposed: 24 h after issue) |
+| `token_hash` | S | SHA-256 (hex) of the verification token. The raw token is never stored. Removed once verified |
+| `token_expires_at` | S | UTC ISO timestamp, 24 h after issue. Removed once verified |
+| `token_sent_at` | S | UTC ISO timestamp of the last verification email; a new one is refused within 60 s. Removed once verified |
 | `created_at`, `verified_at` | S | ISO timestamps |
 | `active_session_id` | S | Optional pointer to the latest API-created session. Updated transactionally with creating the new session and stopping the previous active one. It may point to a stopped or TTL-deleted session; the next start replaces it |
 

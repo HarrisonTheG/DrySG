@@ -12,6 +12,9 @@ and postal codes are looked up on the real OneMap API.
 
 Needs ONEMAP_TOKEN (services/.env, see .env.example) to look up postal codes.
 Tokens expire after about 3 days: https://www.onemap.gov.sg/apidocs/register
+
+Email verification works without SES: POST /users prints the verification link in
+this terminal instead of emailing it. Links point at --app-url (the Vite dev server).
 """
 
 import argparse
@@ -25,6 +28,7 @@ import boto3
 import uvicorn
 from moto import mock_aws
 
+from drysg.alerting.email_template import EmailContent
 from drysg.api.app import create_app
 from drysg.api.deps import build_deps
 from drysg.sessions import normalize_email
@@ -101,6 +105,11 @@ def refresh_forever(minutes: float, stop: threading.Event) -> None:
         refresh_weather()
 
 
+def print_email(to: str, content: EmailContent) -> None:
+    """Stand-in for SES: show the email in the terminal so the link can be clicked."""
+    logger.info("Email to %s: %s\n%s", to, content.subject, content.text)
+
+
 def main() -> None:
     parser = argparse.ArgumentParser(description=(__doc__ or "").split("\n")[0])
     parser.add_argument("--host", default="127.0.0.1")
@@ -111,6 +120,11 @@ def main() -> None:
         type=normalize_email,
         default="local-test@example.com",
         help="Seed a verified email in the in-memory User table only",
+    )
+    parser.add_argument(
+        "--app-url",
+        default="http://127.0.0.1:5173",
+        help="Frontend address used in verification links",
     )
     args = parser.parse_args()
     logging.basicConfig(
@@ -129,6 +143,8 @@ def main() -> None:
         TABLE_POSTAL_CACHE="PostalCache",
         TABLE_USER="User",
         TABLE_MONITORING_SESSION="MonitoringSession",
+        SES_SENDER="local@drysg.example",
+        APP_BASE_URL=args.app_url,
     )
     os.environ.pop("AWS_PROFILE", None)
     if not os.environ.get("ONEMAP_TOKEN", "").strip():
@@ -145,6 +161,9 @@ def main() -> None:
         threading.Thread(
             target=refresh_forever, args=(args.refresh_minutes, stop), daemon=True
         ).start()
+        deps = build_deps()
+        if deps.users is not None:
+            deps.users.send_email = print_email
         app = create_app(
             build_deps,
             cors_origins=["http://localhost:5173", "http://127.0.0.1:5173"],

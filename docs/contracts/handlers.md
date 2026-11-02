@@ -85,13 +85,22 @@ The implemented session routes additionally need `TABLE_USER` and
 `dynamodb:UpdateItem` on User, and `dynamodb:GetItem`, `dynamodb:PutItem`,
 `dynamodb:UpdateItem` on MonitoringSession. Session creation uses `TransactWriteItems`;
 IAM authorizes the underlying PutItem/UpdateItem actions on the participating tables.
-The API does not yet implement verification emails and needs no SES permission for
-these three session routes. `User.verified` must already be true; SES identity
-verification alone does not set this application-level flag.
+`User.verified` must be true to start a session; `POST /users` and `POST /users/verify`
+set it (see below). SES identity verification alone does not set this flag.
 
 The API Gateway branch must include these variables and permissions before session
 routes can be deployed. No new tables or indexes are needed: the user pointer is a
 regular non-key attribute. Rebuild the Lambda zip after installing backend dependencies.
+
+### Email verification deployment
+
+`POST /users` and `POST /users/verify` need `TABLE_USER`, `SES_SENDER` and
+`APP_BASE_URL` on the API Lambda. With any of them absent both routes return
+`503 EMAIL_UNAVAILABLE`; the other routes are unaffected. Grant `ses:SendEmail` from
+`SES_SENDER` (the same condition as the notifier). On User they use only `GetItem` and
+`UpdateItem` (an update creates the row), which the session routes already have.
+In the SES sandbox the recipient must also be a verified SES identity, otherwise
+`POST /users` returns `503 EMAIL_UNAVAILABLE`.
 
 ## External endpoints called
 | Caller | URL |
