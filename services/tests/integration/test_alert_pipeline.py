@@ -7,7 +7,7 @@ import boto3
 import pytest
 
 from drysg.alerting.notifier import NotifierDeps, Outcome, handle_alert, process_records
-from drysg.alerting.trigger import run_alert_trigger
+from drysg.alerting.trigger import raise_baseline, run_alert_trigger
 from drysg.core.models import AlertMessage, Band, SessionStatus
 from drysg.db.items import session_from_item, session_to_item
 from tests.conftest import SENDER
@@ -88,6 +88,29 @@ class TestTrigger:
         )
         assert stats.alerts_queued == 23
         assert len({m.session_id for m in receive_all(sqs, queue_url)}) == 23
+
+    def test_raises_the_baseline_once_conditions_stay_better(
+        self, sessions_table, sqs, queue_url
+    ):
+        session = put_session(sessions_table, baseline_score=20,
+                              baseline_band=Band.DO_NOT_HANG, baseline_veto=True)
+        stats = run_alert_trigger(
+            [make_snapshot(75, prev_band=Band.WAIT)], sessions_table=sessions_table, sqs=sqs,
+            queue_url=queue_url, now=NOW,
+        )
+        assert (stats.alerts_queued, stats.baselines_raised) == (0, 1)
+        item = sessions_table.get_item(Key={"session_id": session.session_id})["Item"]
+        stored = session_from_item(item)
+        assert (stored.baseline_score, stored.baseline_band, stored.baseline_veto) == (
+            75, Band.HANG_NOW, False)
+
+    def test_does_not_overwrite_a_baseline_that_changed(self, sessions_table):
+        stale = put_session(sessions_table, baseline_score=20, baseline_band=Band.DO_NOT_HANG)
+        put_session(sessions_table, baseline_score=10, baseline_band=Band.DO_NOT_HANG)
+        assert not raise_baseline(sessions_table, stale, make_snapshot(75).result)
+        stopped = put_session(sessions_table, session_id="stopped", baseline_score=20,
+                              baseline_band=Band.DO_NOT_HANG, status=SessionStatus.STOPPED)
+        assert not raise_baseline(sessions_table, stopped, make_snapshot(75).result)
 
     def test_no_alerts_when_conditions_hold(self, sessions_table, sqs, queue_url):
         put_session(sessions_table)
@@ -191,6 +214,31 @@ def test_pipeline_end_to_end(deps, sessions_table, sqs, queue_url, ses):
     assert run_once(make_snapshot(30, veto_reason=rain)) == 1
     assert run_once(make_snapshot(25, veto_reason=rain, at=NOW + timedelta(minutes=5))) == 0
     assert sent_count(ses) == 1
+
+
+def test_rain_after_a_dry_spell_alerts_again(deps, sessions_table, sqs, queue_url, ses):
+    """Rain -> email; dry for two runs -> baseline rises; rain again -> second email."""
+    session = put_session(sessions_table)
+    rain = "Rain detected at nearby station (0.4 mm in last 5 min)"
+    runs = [
+        (make_snapshot(30, veto_reason=rain, prev_band=Band.HANG_NOW), 1),
+        (make_snapshot(80, prev_band=Band.DO_NOT_HANG), 0),  # one dry run: not yet
+        (make_snapshot(80, prev_band=Band.HANG_NOW), 0),  # two dry runs: re-armed
+        (make_snapshot(30, veto_reason=rain, prev_band=Band.HANG_NOW), 1),
+    ]
+    for i, (snapshot, emails) in enumerate(runs):
+        at = NOW + timedelta(minutes=5 * i)
+        snapshot.updated_at = at
+        run_alert_trigger(
+            [snapshot], sessions_table=sessions_table, sqs=sqs, queue_url=queue_url, now=at
+        )
+        queued = receive_all(sqs, queue_url)
+        records = [sqs_record(m, f"m{i}-{j}") for j, m in enumerate(queued)]
+        assert process_records(deps, records, at) == []
+        assert len(records) == emails, f"run {i}"
+    assert sent_count(ses) == 2
+    item = sessions_table.get_item(Key={"session_id": session.session_id})["Item"]
+    assert session_from_item(item).baseline_veto is True
 
 
 def test_lambda_handler(monkeypatch, sessions_table, alert_log_table, ses):

@@ -4,7 +4,14 @@ from datetime import timedelta
 
 import pytest
 
-from drysg.core.alerts import ALERT_COOLDOWN, SCORE_DROP_THRESHOLD, decide_alert
+from drysg.core.alerts import (
+    ALERT_COOLDOWN,
+    RAIN_REALERT_GAP,
+    SCORE_DROP_THRESHOLD,
+    decide_alert,
+    rain_started,
+    should_raise_baseline,
+)
 from drysg.core.models import Band, SessionStatus
 from tests.factories import NOW, make_session, make_snapshot
 
@@ -157,3 +164,78 @@ class TestCooldown:
             last_alert_band=Band.DO_NOT_HANG,
         )
         assert decide_alert(session, make_snapshot(30, veto_reason=RAIN), NOW) is not None
+
+
+# --- Rain returning and the baseline moving back up ---------------------------
+
+RAINED_ON = {"baseline_score": 20, "baseline_band": Band.DO_NOT_HANG, "baseline_veto": True}
+
+
+def test_rain_started_needs_a_dry_previous_run():
+    assert rain_started(make_snapshot(20, veto_reason=RAIN, prev_band=Band.WAIT))
+    assert not rain_started(make_snapshot(20, veto_reason=RAIN, prev_band=Band.DO_NOT_HANG))
+    assert not rain_started(make_snapshot(20, veto_reason=RAIN))  # previous run unknown
+    assert not rain_started(make_snapshot(60, prev_band=Band.WAIT))
+
+
+def test_rain_after_one_dry_run_alerts_a_session_already_told_about_rain():
+    # Started (or last alerted) in the rain; it stopped for one run and is back.
+    session = make_session(**RAINED_ON)
+    alert = decide_alert(session, make_snapshot(15, veto_reason=RAIN, prev_band=Band.WAIT), NOW)
+    assert alert is not None and alert.reason == RAIN
+
+
+def test_continuing_rain_still_does_not_repeat():
+    session = make_session(**RAINED_ON, last_alert_at=NOW - timedelta(hours=2),
+                           last_alert_band=Band.DO_NOT_HANG)
+    snapshot = make_snapshot(15, veto_reason=RAIN, prev_band=Band.DO_NOT_HANG)
+    assert decide_alert(session, snapshot, NOW) is None
+
+
+@pytest.mark.parametrize(
+    ("since_last_alert", "alerts"),
+    [(timedelta(minutes=10), False), (RAIN_REALERT_GAP, True)],
+)
+def test_returning_rain_alerts_at_most_every_30_minutes(since_last_alert, alerts):
+    session = make_session(**RAINED_ON, last_alert_at=NOW - since_last_alert,
+                           last_alert_band=Band.DO_NOT_HANG)
+    snapshot = make_snapshot(15, veto_reason=RAIN, prev_band=Band.WAIT)
+    assert (decide_alert(session, snapshot, NOW) is not None) is alerts
+
+
+@pytest.mark.parametrize(
+    ("baseline", "prev_band", "new_score", "raises"),
+    [
+        (RAINED_ON, Band.WAIT, 75, True),  # dry for two runs
+        (RAINED_ON, Band.DO_NOT_HANG, 75, False),  # only one dry run so far
+        (RAINED_ON, None, 75, False),  # previous run unknown
+        ({"baseline_score": 55, "baseline_band": Band.WAIT}, Band.HANG_NOW, 80, True),
+        ({"baseline_score": 55, "baseline_band": Band.WAIT}, Band.WAIT, 80, False),
+        ({"baseline_score": 85, "baseline_band": Band.HANG_NOW}, Band.HANG_NOW, 95, False),
+    ],
+)
+def test_baseline_rises_once_the_band_is_better_for_two_runs(
+    baseline, prev_band, new_score, raises
+):
+    session = make_session(**baseline)
+    snapshot = make_snapshot(new_score, prev_band=prev_band)
+    assert should_raise_baseline(session, snapshot, NOW) is raises
+
+
+def test_ineligible_sessions_never_raise_their_baseline():
+    snapshot = make_snapshot(75, prev_band=Band.WAIT)
+    for session in (
+        make_session(**RAINED_ON, status=SessionStatus.STOPPED),
+        make_session(**RAINED_ON, expires_at=NOW),
+        make_session(**RAINED_ON, area="Hougang"),
+    ):
+        assert not should_raise_baseline(session, snapshot, NOW)
+
+
+def test_rain_stopping_is_not_read_as_a_score_drop():
+    # Rain kept the band at Do Not Hang while the score stayed high. After the rain the
+    # score is 30 lower but the band is better: the baseline rises, no "score fell" email.
+    session = make_session(baseline_score=90, baseline_band=Band.DO_NOT_HANG, baseline_veto=True)
+    snapshot = make_snapshot(60, prev_score=60, prev_band=Band.WAIT)
+    assert decide_alert(session, snapshot, NOW) is None
+    assert should_raise_baseline(session, snapshot, NOW)

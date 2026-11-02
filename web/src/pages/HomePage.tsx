@@ -186,6 +186,8 @@ export function HomePage() {
               <AirQualityCard recommendation={data} />
               <MonitoringCard
                 session={session}
+                rainVeto={data.rainVeto}
+                recommendation={data.recommendation}
                 pending={pending}
                 notConfirmedYet={notConfirmedYet}
                 isStarting={isStarting}

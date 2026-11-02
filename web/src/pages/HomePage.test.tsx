@@ -75,6 +75,21 @@ describe("HomePage monitoring", () => {
     expect(await screen.findByText("Is your laundry outside?")).toBeInTheDocument()
   })
 
+  it("warns that starting in the rain only alerts once rain returns", async () => {
+    mock.reset()
+    mock.onGet("/recommendation").reply(200, {
+      ...recommendation,
+      recommendation: "DO_NOT_HANG",
+      rainVeto: true,
+    })
+    const user = userEvent.setup()
+    renderAt("/", "/", <HomePage />)
+    await searchPostal(user)
+
+    expect(await screen.findByText(/it's raining now/i)).toBeInTheDocument()
+    expect(screen.getByRole("button", { name: "Start monitoring" })).toBeEnabled()
+  })
+
   it("shows a missing reading as a dash instead of crashing", async () => {
     mock.reset()
     mock.onGet("/recommendation").reply(200, {

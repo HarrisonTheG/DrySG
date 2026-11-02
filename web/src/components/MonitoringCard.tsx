@@ -5,7 +5,7 @@ import { z } from "zod"
 import { format } from "date-fns"
 import { useNow } from "@/hooks/useNow"
 import type { PendingStart } from "@/lib/storage"
-import type { LaundrySession } from "@/types/api"
+import type { LaundrySession, RecommendationState } from "@/types/api"
 
 const schema = z.object({ email: z.string().email("Enter a valid email address") })
 type Values = z.infer<typeof schema>
@@ -15,6 +15,9 @@ const RESEND_INTERVAL_MS = 60_000
 
 interface Props {
   session?: LaundrySession
+  /** Current conditions, to warn when starting now would not alert straight away. */
+  rainVeto?: boolean
+  recommendation?: RecommendationState
   pending?: PendingStart
   notConfirmedYet?: boolean
   isStarting?: boolean
@@ -29,6 +32,8 @@ interface Props {
 
 export function MonitoringCard({
   session,
+  rainVeto,
+  recommendation,
   pending,
   notConfirmedYet,
   isStarting,
@@ -99,6 +104,13 @@ export function MonitoringCard({
           <p className="mt-1 text-sm leading-6 text-slate-600">
             Start monitoring and DrySG will email you if rain begins or the recommendation changes to a worse state.
           </p>
+          {(rainVeto || recommendation === "DO_NOT_HANG") && (
+            <p className="mt-3 rounded-2xl bg-amber-100 px-3 py-2 text-sm leading-6 text-amber-900">
+              {rainVeto
+                ? "It's raining now or rain is forecast. Start monitoring when you hang your laundry. We'll still email you if rain returns after a dry spell."
+                : "Drying conditions are poor right now. We'll email you if rain starts, or if conditions improve and then get worse again."}
+            </p>
+          )}
           <form onSubmit={handleSubmit(({ email }) => onStart(email))} className="mt-5">
              <label htmlFor="email" className="mb-2 block text-sm font-semibold text-slate-800">Email for alerts</label>
             <div className="flex flex-col gap-3 sm:flex-row">

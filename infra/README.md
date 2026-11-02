@@ -56,7 +56,9 @@ aws sso login --profile drysg
 cd infra
 copy terraform.tfvars.example terraform.tfvars      # macOS/Linux: cp
 ```
-Set `ses_sender` to the **same address the team already uses** (ask the infra owner). `terraform.tfvars` is gitignored. Using a different address would replace the shared SES identity for everyone.
+Set `ses_sender` to the **same address the team already uses**: currently `isaaac67@gmail.com` (changed from `zhenging2b@hotmail.com` on 2026-11-02, because Gmail silently dropped mail "from" hotmail.com sent through SES). `terraform.tfvars` is gitignored. Using a different address would replace the shared SES identity for everyone. The old Hotmail identity is still verified in SES but no longer managed by Terraform.
+
+Gmail delivers DrySG mail from this sender to **Spam**: ask testers to check Spam and mark it "Not spam".
 
 Also set `onemap_token` (see [Renewing the OneMap token](#renewing-the-onemap-token)). It has no default on purpose: if it were empty, any `apply` would wipe the token from the API Lambda and postal code lookups would fail.
 
@@ -128,7 +130,7 @@ services\.venv\Scripts\python.exe scripts\smoke_test_alert.py --email <your veri
 ```
 (Set up `services/.venv` as described in [`services/README.md`](../services/README.md). On macOS/Linux use `services/.venv/bin/python`.)
 
-`--email` is who **receives** the test alert. It's not the sender (`ses_sender`). In sandbox, **both** must be verified in SES, so the easiest choice is the `ses_sender` address itself. To receive at a different address, verify that address first (see [Email (SES) sandbox](#email-ses-sandbox)).
+`--email` is who **receives** the test alert. It's not the sender (`ses_sender`). Any address works now that SES has production access (see [Email (SES)](#email-ses)).
 
 A `PASS` means SES accepted the email. Check the inbox **and junk folder**. For a `FAIL`:
 ```
@@ -151,7 +153,7 @@ aws logs tail /aws/lambda/drysg-dev-api --since 10m
 ```
 
 ### API (email verification)
-Ask for a verification email, using an address verified in SES while in sandbox:
+Ask for a verification email:
 ```
 curl -X POST "$(terraform output -raw api_url)/users" -H "Content-Type: application/json" -d '{"email":"<your verified email>"}'
 ```
@@ -173,13 +175,12 @@ The API needs a OneMap token to look up postal codes that aren't cached yet. It 
 - The token is stored in the Terraform state and shows in the Lambda console. Don't share screenshots of either.
 - If two people apply with different tokens, the last apply wins. Agree who renews it.
 
-## Email (SES) sandbox
-SES starts in **sandbox mode**:
-- It only delivers to **verified** addresses, at about 200 emails/day. Sandbox checks **both** the sender and every recipient.
-- This applies to alert emails (notifier) and verification emails (`POST /users` on the API).
-- If the notifier or API log shows `MessageRejected: Email address is not verified`, the address it names isn't verified. It's usually the recipient.
-- To receive test alerts, verify your address: AWS Console → **SES → Identities → Create identity → Email address**, then click the link AWS emails you (check junk).
-- Before real users sign up, request production access in the SES console.
+## Email (SES)
+**Production access was granted on 2026-11-02**, so SES now delivers to any address (sending limits are shown under SES → Account dashboard). Only the sender must be verified.
+
+If the notifier or API log shows `MessageRejected: Email address is not verified`, the sender identity has lost its verification: check SES → Identities.
+
+Before 2026-11-02 the account was in **sandbox mode**, which only delivered to verified addresses (both sender and every recipient), about 200 emails/day. A new AWS account starts in sandbox again and needs its own production access request.
 
 Mail sent "from" a personal address (Hotmail, Gmail, university) through SES may land in junk. A custom domain verified in SES fixes this.
 
