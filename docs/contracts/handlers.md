@@ -102,6 +102,17 @@ regular non-key attribute. Rebuild the Lambda zip after installing backend depen
 In the SES sandbox the recipient must also be a verified SES identity, otherwise
 `POST /users` returns `503 EMAIL_UNAVAILABLE`.
 
+### Experience deployment
+
+`POST /experience/alert` (the website's Experience page, "Send live alerts") reuses the
+email-verification settings: it needs `TABLE_USER`, `SES_SENDER` and `APP_BASE_URL`, and is
+`503 EMAIL_UNAVAILABLE` without them. It adds no permissions or tables: it sends with
+`ses:SendEmail` and writes `last_experience_at` on the User row with `UpdateItem`. Only
+verified emails are sent to, at most one per address every 15 seconds. The email content
+comes from `drysg/experience/scenarios.json`, which ships inside the Lambda zip (the build
+copies the whole `drysg` package). If that file is missing the route returns
+`404 SCENARIO_NOT_FOUND` and the rest of the API is unaffected.
+
 ## External endpoints called
 | Caller | URL |
 |---|---|

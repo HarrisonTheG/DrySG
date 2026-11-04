@@ -135,3 +135,23 @@ class VerifyUser(BaseModel):
 class UserStatus(BaseModel):
     email: str = Field(json_schema_extra={"format": "email"})
     verified: bool
+
+
+class SendExperienceAlert(BaseModel):
+    """Email the alert that an Experience scenario raises at one frame of its replay."""
+
+    email: str = Field(json_schema_extra={"format": "email"})
+    scenarioId: str = Field(min_length=1, max_length=120)
+    frame: int = Field(ge=0, le=100)
+
+    @field_validator("email", mode="before")
+    @classmethod
+    def validate_email(cls, value: str) -> str:
+        return normalize_email(value)
+
+
+class ExperienceAlertSent(BaseModel):
+    email: str = Field(json_schema_extra={"format": "email"})
+    scenarioId: str
+    frame: int
+

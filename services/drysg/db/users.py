@@ -117,3 +117,43 @@ class UserRepository:
             if _is_conditional_failure(exc):
                 raise TokenMismatchError() from exc
             raise
+
+    def claim_experience_send(self, email: str, *, now: datetime, cutoff: datetime) -> str:
+        """Claim the right to send one Experience email: "ok", "unverified" or "too_soon".
+
+        One atomic update, so concurrent requests cannot both pass: the user must be
+        verified and have had no Experience email since `cutoff`.
+        """
+        try:
+            self._users.update_item(
+                Key={"email": email},
+                UpdateExpression="SET last_experience_at = :now",
+                ConditionExpression=(
+                    "verified = :true AND "
+                    "(attribute_not_exists(last_experience_at) OR last_experience_at < :cutoff)"
+                ),
+                ExpressionAttributeValues={
+                    ":true": True,
+                    ":now": _utc(now),
+                    ":cutoff": _utc(cutoff),
+                },
+            )
+        except ClientError as exc:
+            if not _is_conditional_failure(exc):
+                raise
+            user = self.get(email) or {}
+            return "too_soon" if user.get("verified") is True else "unverified"
+        return "ok"
+
+    def release_experience_send(self, email: str, *, now: datetime) -> None:
+        """Undo a claim after a failed send, so the user can retry straight away."""
+        try:
+            self._users.update_item(
+                Key={"email": email},
+                UpdateExpression="REMOVE last_experience_at",
+                ConditionExpression="last_experience_at = :now",
+                ExpressionAttributeValues={":now": _utc(now)},
+            )
+        except ClientError as exc:
+            if not _is_conditional_failure(exc):
+                raise

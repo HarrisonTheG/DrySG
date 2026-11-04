@@ -142,6 +142,28 @@ sandbox, SES only delivers to addresses verified in SES, so test with one of tho
 See [handlers.md](../docs/contracts/handlers.md#email-verification-deployment) for the
 deployment settings.
 
+### Experience mode (replayed weather and its alert email)
+
+The website's **Experience** page replays real hours of past NEA history (2024 and 2026), so people can see
+rain, a good drying day or a slow one without waiting for the weather. The replay runs in the
+browser from a bundled file and calls no API. The one backend piece is `POST /experience/alert`,
+used when the visitor switches on "Send live alerts":
+
+```bash
+curl -X POST localhost:8000/experience/alert -H 'content-type: application/json' \
+  -d '{"email":"local-test@example.com","scenarioId":"rain_arrives-20241112-0950-changi","frame":5}'
+```
+
+It sends the alert email the live rules raised at that frame of that scenario. The client
+only names the scenario and frame, so it cannot choose the email's content. Verified emails
+only (`403 EMAIL_NOT_VERIFIED`), one per address every 15 seconds (`429 RATE_LIMITED`).
+The email says it is a replay and links back to `/experience`. Locally it is printed in the
+API's terminal like the verification link. Other errors: `404 SCENARIO_NOT_FOUND`,
+`400 NO_ALERT_AT_FRAME`, `503 EMAIL_UNAVAILABLE`. Valid scenario ids are in
+`drysg/experience/scenarios.json`.
+
+The scenarios are built offline, like the percentile table (section 7).
+
 ### Recommendation
 
 Call it with your postal code:
@@ -409,6 +431,28 @@ shift slightly on the next ingest run.
 
 To rebuild 2024 or inspect how the table is derived, use `--year 2024 --samples-csv ...`; the
 CSV has one row per station sample with its readings, DP and resulting score.
+
+## 7. Rebuild the Experience scenarios
+
+`drysg/experience/scenarios.json` (read by the API) and `web/src/data/experienceScenarios.json`
+(played by the website) are the same generated file. `scripts/build_experience_scenarios.py`
+downloads whole days of history for the six NEA feeds, replays every 5-minute mark through
+the live `normalize_weather`, `compute_score` and alert rules (`drysg/experience/replay.py`),
+keeps a varied few one-hour windows per category, and looks up real postal codes from OneMap.
+
+```bash
+.venv/bin/python -I scripts/build_experience_scenarios.py --cache-dir ~/experience-cache
+```
+
+- It needs `ONEMAP_TOKEN` (from `.env`) and downloads about 200 pages a day at one per second.
+  The default 16 days take roughly an hour. Downloads are cached in
+  `--cache-dir`, so an interrupted run resumes. `--days 2024-11-12` runs one day (about 4
+  minutes) and `--per-category` sets how many scenarios each category keeps.
+- Default days: the 9th of every month of 2024, plus four days of the 2026 haze (2024 had none:
+  its PSI never passed 100). A category with no clear example in the chosen days is left out.
+- Rebuild after changing the scoring method or table: the stored scores and alerts come from the
+  code at build time. The tests fail if the two files differ.
+- Commit both generated files, then redeploy the API (the Lambda zip includes the JSON) and the web app.
 
 ## Other notes
 

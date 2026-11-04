@@ -1,6 +1,7 @@
 import MockAdapter from "axios-mock-adapter"
 import { addHours } from "date-fns"
 import { api } from "@/api/axios"
+import { allScenarios } from "@/lib/experience"
 import type {
   ApiErrorBody,
   ApiErrorCode,
@@ -12,11 +13,14 @@ import type {
 // Kept in localStorage so a /verify or /stop link opened in a new tab sees the same data.
 const DB_KEY = "drysg.mock-db"
 const RESEND_INTERVAL_MS = 60_000
+/** Matches the backend: one Experience email per address every 15 seconds. */
+const EXPERIENCE_INTERVAL_MS = 15_000
 
 interface MockUser {
   verified: boolean
   token?: string
   sentAt?: number
+  experienceAt?: number
 }
 
 interface MockDb {
@@ -179,6 +183,27 @@ export function setupMockApi() {
     db.users[address] = { verified: true }
     saveDb(db)
     return [200, { email: address, verified: true }]
+  })
+
+  // Like the real API, only verified emails get an alert, and the content comes from the scenario.
+  mock.onPost("/experience/alert").reply((config) => {
+    const { email, scenarioId, frame } = body(config.data)
+    if (!isEmail(email)) return fail(400, "INVALID_EMAIL", "Enter a valid email address")
+    const scenario = allScenarios.find((s) => s.id === scenarioId)
+    if (!scenario) return fail(404, "SCENARIO_NOT_FOUND", "No such scenario")
+    const alert = scenario.alerts.find((a) => a.frame === frame)
+    if (!alert) return fail(400, "NO_ALERT_AT_FRAME", "This scenario raises no alert at that frame")
+    const db = loadDb()
+    const address = normalize(email)
+    const user = db.users[address]
+    if (!user?.verified) return fail(403, "EMAIL_NOT_VERIFIED", "Confirm your email before turning on live alerts")
+    if (user.experienceAt && Date.now() - user.experienceAt < EXPERIENCE_INTERVAL_MS) {
+      return fail(429, "RATE_LIMITED", "An alert was just sent. Wait a few seconds")
+    }
+    user.experienceAt = Date.now()
+    saveDb(db)
+    console.info(`[mock API] Experience alert to ${address}: ${alert.reason} (${scenario.area})`)
+    return [202, { email: address, scenarioId, frame }]
   })
 
   mock.onPost("/laundry-sessions").reply((config) => {

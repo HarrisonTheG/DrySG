@@ -55,6 +55,15 @@ def _sgt_time(ts: datetime) -> str:
     return f"{hour}:{local.minute:02d} {'am' if local.hour < 12 else 'pm'} SGT"
 
 
+def _sgt_datetime(ts: datetime) -> str:
+    local = ts.astimezone(SGT)
+    return f"{local:%a} {local.day} {local:%b %Y}, {_sgt_time(ts)}"
+
+
+def experience_url(base_url: str) -> str:
+    return f"{base_url.rstrip('/')}/experience"
+
+
 def _band_chip(band: Band, score: int | None = None) -> str:
     fg, bg, border = BAND_TONES[band]
     label = escape(str(band)) if score is None else f"{escape(str(band))} &middot; {score}"
@@ -177,7 +186,11 @@ def render_verification(email: str, token: str, base_url: str, hours_valid: int)
     return EmailContent(subject=subject, text=text, html=html)
 
 
-def render_alert(msg: AlertMessage, base_url: str) -> EmailContent:
+def render_alert(msg: AlertMessage, base_url: str, *, experience: bool = False) -> EmailContent:
+    """The alert email. `experience` marks a replay of past weather from the Experience page:
+    it says so, shows when the weather really happened, and links to another scenario
+    instead of a stop-monitoring page (nothing is being monitored).
+    """
     if msg.new_veto:
         subject = f"DrySG: rain nearby, bring your laundry in ({msg.area})"
         action = "Rain is detected or forecast near you. Bring your laundry in now."
@@ -197,8 +210,11 @@ def render_alert(msg: AlertMessage, base_url: str) -> EmailContent:
         lead = action
         accent, icon = BAND_TONES[Band.WAIT][0], "&#9729;&#65039;"
 
-    stop = stop_url(base_url, msg.session_id)
-    when = _sgt_time(msg.snapshot_ts)
+    stop = experience_url(base_url) if experience else stop_url(base_url, msg.session_id)
+    when = _sgt_datetime(msg.snapshot_ts) if experience else _sgt_time(msg.snapshot_ts)
+    when_label = "Replayed from" if experience else "Checked"
+    if experience:
+        subject = f"[DrySG Experience] {subject.removeprefix('DrySG: ')}"
     # The drying score ignores rain (rain is a separate veto), so it can still be high
     # while it rains. "Do Not Hang (score 82/100)" would look contradictory, so rain
     # alerts leave the score out and lead with the reason.
@@ -214,9 +230,17 @@ def render_alert(msg: AlertMessage, base_url: str) -> EmailContent:
         f"Area: {msg.area}\n"
         f"Reason: {msg.reason}\n"
         f"{status_text}"
-        f"Checked: {when}\n\n"
-        f"Brought your laundry in? Stop monitoring: {stop}\n"
+        f"{when_label}: {when}\n\n"
     )
+    if experience:
+        text = (
+            "EXPERIENCE REPLAY: this is real NEA weather from the past, played back to show "
+            "you an alert. Nothing is being monitored.\n\n"
+            + text
+            + f"Try another scenario: {stop}\n"
+        )
+    else:
+        text += f"Brought your laundry in? Stop monitoring: {stop}\n"
 
     row = (
         '<tr><td style="padding:10px 0;border-top:1px solid {line};font-size:13px;'
@@ -236,7 +260,7 @@ def render_alert(msg: AlertMessage, base_url: str) -> EmailContent:
         rows.append(("Change", change))
     else:
         rows.append(("Now", _band_chip(Band.DO_NOT_HANG)))
-    rows.append(("Checked", escape(when)))
+    rows.append((when_label, escape(when)))
     details = (
         '<table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" '
         f'style="margin:0 0 24px;font-family:{FONT}">'
@@ -247,27 +271,42 @@ def render_alert(msg: AlertMessage, base_url: str) -> EmailContent:
         + "</table>"
     )
 
+    if experience:
+        banner = _para(
+            f'<b style="color:{INK}">Experience replay.</b> Real NEA weather from the past, '
+            "played back to show you an alert. Nothing is being monitored.",
+            size=13,
+            margin="0 0 18px",
+        )
+        action_button = _button(stop, "Try another scenario")
+        action_note = "This is what a live alert looks like."
+    else:
+        banner = ""
+        action_button = _button(stop, "I've brought my laundry in")
+        action_note = "This stops monitoring, so you won't get more alerts for this load."
     body = (
-        _heading(headline)
+        banner
+        + _heading(headline)
         + _para(escape(lead))
         + details
-        + _button(stop, "I've brought my laundry in")
-        + _para(
-            "This stops monitoring, so you won't get more alerts for this load.",
-            size=13,
-            color=FAINT,
-            margin="12px 0 0",
-        )
+        + action_button
+        + _para(action_note, size=13, color=FAINT, margin="12px 0 0")
         + _fallback_link(stop)
     )
+    footer = (
+        "You're getting this because you turned on live alerts in DrySG Experience. "
+        "Nothing is being monitored."
+        if experience
+        else (
+            f"You're getting this because you started monitoring {escape(msg.area)} on DrySG. "
+            f"Monitoring ends on its own after {_LIFETIME_HOURS} hours."
+        )
+    )
     html = _layout(
-        preheader=f"{msg.area}: {msg.reason}",
+        preheader=f"{'Experience replay: ' if experience else ''}{msg.area}: {msg.reason}",
         accent=accent,
         icon=icon,
         body=body,
-        footer=(
-            f"You're getting this because you started monitoring {escape(msg.area)} on DrySG. "
-            f"Monitoring ends on its own after {_LIFETIME_HOURS} hours."
-        ),
+        footer=footer,
     )
     return EmailContent(subject=subject, text=text, html=html)

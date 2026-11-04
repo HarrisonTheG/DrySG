@@ -16,6 +16,8 @@ from drysg.db import (
     SessionRepository,
     UserRepository,
 )
+from drysg.experience.scenarios import load_scenarios
+from drysg.experience.service import ExperienceService
 from drysg.sessions import SessionService
 from drysg.users import UserService
 
@@ -71,6 +73,12 @@ def build_deps() -> ApiDeps:
     def refresh() -> None:
         IngestionService(NeaClient(http, api_key=nea_key), snapshots).run()
 
+    send_email = (
+        ses_sender(boto3.client("ses", region_name=region, config=aws_config), sender)
+        if sender
+        else None
+    )
+
     return ApiDeps(
         snapshots=snapshots,
         locations=LocationService(OneMapClient(http, token=onemap_token), postals),
@@ -85,12 +93,20 @@ def build_deps() -> ApiDeps:
         users=(
             UserService(
                 UserRepository(dynamodb, user_table),
-                ses_sender(
-                    boto3.client("ses", region_name=region, config=aws_config), sender
-                ),
+                send_email,
                 app_base_url=app_base_url,
             )
-            if user_table and sender and app_base_url
+            if user_table and send_email and app_base_url
+            else None
+        ),
+        experience=(
+            ExperienceService(
+                UserRepository(dynamodb, user_table),
+                send_email,
+                load_scenarios(),
+                app_base_url=app_base_url,
+            )
+            if user_table and send_email and app_base_url
             else None
         ),
     )

@@ -49,3 +49,14 @@ export function readPendingStart() {
 export function storePendingStart(pending: PendingStart | undefined) {
   write(PENDING_KEY, pending)
 }
+
+export const EXPERIENCE_EMAIL_KEY = "drysg.experience-email"
+
+/** The email last used for Experience live alerts, so it is not retyped each visit. */
+export function readExperienceEmail() {
+  return read<string>(EXPERIENCE_EMAIL_KEY) ?? ""
+}
+
+export function storeExperienceEmail(email: string) {
+  write(EXPERIENCE_EMAIL_KEY, email || undefined)
+}

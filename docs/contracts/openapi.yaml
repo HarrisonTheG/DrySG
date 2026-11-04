@@ -113,6 +113,51 @@ paths:
         '400': { $ref: '#/components/responses/BadRequest' }
         '503': { $ref: '#/components/responses/EmailUnavailable' }
 
+  /experience/alert:
+    post:
+      summary: Email the alert an Experience replay raises at one frame
+      description: |
+        Used by the website's Experience mode when "send live alerts" is on. The website
+        replays real historical NEA data from a bundled scenario with no API calls; only
+        this email needs the backend. The client names a scenario and a frame and never
+        supplies the email's content: the alert (reason, scores, area, time) is the one the
+        live alert rules raised in that replay, from the scenario bundled with the API.
+        The email says it is a replay and links back to Experience instead of a stop page.
+        Verified emails only (`403 EMAIL_NOT_VERIFIED`; use `POST /users` first), and at
+        most one per address every 15 seconds (`429 RATE_LIMITED`). `404 SCENARIO_NOT_FOUND`
+        for an unknown scenario, `400 NO_ALERT_AT_FRAME` when it raises no alert there.
+      operationId: sendExperienceAlert
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [email, scenarioId, frame]
+              properties:
+                email: { type: string, format: email }
+                scenarioId: { type: string }
+                frame: { type: integer, minimum: 0, description: Index into the scenario's frames }
+      responses:
+        '202':
+          description: Alert email sent
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ExperienceAlertSent' }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '403':
+          description: The email has not been verified (`EMAIL_NOT_VERIFIED`)
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Error' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '429':
+          description: An Experience email was just sent to this address (`RATE_LIMITED`)
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Error' }
+        '503': { $ref: '#/components/responses/EmailUnavailable' }
+
   /laundry-sessions:
     post:
       summary: Start monitoring (laundry is now hanging outside)
@@ -241,6 +286,9 @@ components:
                 - RESEND_TOO_SOON
                 - DATA_UNAVAILABLE
                 - EMAIL_UNAVAILABLE
+                - SCENARIO_NOT_FOUND
+                - NO_ALERT_AT_FRAME
+                - RATE_LIMITED
                 - INTERNAL_ERROR
             message: { type: string }
 
@@ -327,6 +375,14 @@ components:
       properties:
         email: { type: string, format: email }
         verified: { type: boolean }
+
+    ExperienceAlertSent:
+      type: object
+      required: [email, scenarioId, frame]
+      properties:
+        email: { type: string, format: email }
+        scenarioId: { type: string }
+        frame: { type: integer }
 
     LaundrySession:
       type: object

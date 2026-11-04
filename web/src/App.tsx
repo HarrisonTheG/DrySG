@@ -1,6 +1,7 @@
 import { Navigate, Route, Routes } from "react-router-dom"
 import { Toaster } from "sonner"
 import { Header } from "@/components/Header"
+import { ExperiencePage } from "@/pages/ExperiencePage"
 import { HomePage } from "@/pages/HomePage"
 import { StopPage } from "@/pages/StopPage"
 import { VerifyPage } from "@/pages/VerifyPage"
@@ -14,6 +15,7 @@ export default function App() {
       <main className="mx-auto max-w-6xl px-4 py-8 sm:px-6 sm:py-10">
         <Routes>
           <Route path="/" element={<HomePage />} />
+          <Route path="/experience" element={<ExperiencePage />} />
           {/* Links in DrySG emails (see services/drysg/alerting/email_template.py). */}
           <Route path="/verify" element={<VerifyPage />} />
           <Route path="/stop" element={<StopPage />} />

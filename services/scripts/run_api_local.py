@@ -164,6 +164,8 @@ def main() -> None:
         deps = build_deps()
         if deps.users is not None:
             deps.users.send_email = print_email
+        if deps.experience is not None:
+            deps.experience.send_email = print_email
         app = create_app(
             build_deps,
             cors_origins=["http://localhost:5173", "http://127.0.0.1:5173"],
