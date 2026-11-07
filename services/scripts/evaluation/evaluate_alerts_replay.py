@@ -37,6 +37,7 @@ from history import (  # noqa: E402
     API_CACHE,
     CSV_CACHE,
     SERVICES,
+    api_days,
     area_series,
     csv_days,
     load_day,
@@ -481,10 +482,12 @@ def main() -> None:
     if args.cache_dir is None:
         args.cache_dir = CSV_CACHE if args.source == "csv" else API_CACHE
     args.output.parent.mkdir(parents=True, exist_ok=True)
-    if args.source == "csv" and not args.days:
+    if args.days:
+        days = parse_days(args.days)
+    elif args.source == "csv":
         days = csv_days(args.cache_dir)
     else:
-        days = parse_days(args.days)
+        days = api_days(args.cache_dir)  # whatever download_history.py has fetched so far
     report = evaluate(days, args.cache_dir, args.source, args.workers)
     args.output.write_text(json.dumps(report, indent=2))
     print_table(report)

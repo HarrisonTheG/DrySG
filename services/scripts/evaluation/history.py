@@ -64,6 +64,26 @@ def parse_days(text: str | None) -> list[date]:
     return [date.fromisoformat(d) for d in text.split(",")] if text else DEFAULT_DAYS
 
 
+def year_days(year: int) -> list[date]:
+    """Every day of `year`, the 9ths and 23rds first so a partial run is spread over the year."""
+    first = date(year, 1, 1)
+    days = [first + timedelta(n) for n in range((date(year + 1, 1, 1) - first).days)]
+    priority = [d for d in days if d.day in (9, 23)]
+    return priority + [d for d in days if d.day not in (9, 23)]
+
+
+def api_days(cache_dir: Path) -> list[date]:
+    """Days whose first rainfall page is in the API cache (incomplete days are skipped later)."""
+    return sorted(
+        date.fromisoformat(p.name.split("_")[2])
+        for p in cache_dir.glob(f"{CACHE_VERSION}_rainfall_*_{_page_tag(None)}.json")
+    )
+
+
+def _page_tag(token: str | None) -> str:
+    return base64.urlsafe_b64encode((token or "first").encode()).decode().rstrip("=")
+
+
 # ---------------------------------------------------------------- api source
 
 
@@ -90,9 +110,8 @@ class DayFetcher:
         """The `data` object of each page."""
         pages, token = [], None
         while True:
-            tag = base64.urlsafe_b64encode((token or "first").encode()).decode().rstrip("=")
             data = self._cached(
-                f"{CACHE_VERSION}_{feed}_{day.isoformat()}_{tag}.json",
+                f"{CACHE_VERSION}_{feed}_{day.isoformat()}_{_page_tag(token)}.json",
                 lambda token=token: self._download(feed, day.isoformat(), token),
             )
             pages.append(data)

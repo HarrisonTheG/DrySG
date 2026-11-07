@@ -33,17 +33,21 @@ Downloaded data, converted pages and results go under `services/.cache/`, which 
    .venv/bin/python -I scripts/evaluation/evaluate_alerts_replay.py --source csv
    ```
 
-## Option B: sample days from the API (no manual download)
+## Option B: download from the API in code (no manual step, slower)
 
 ```bash
-.venv/bin/python -I scripts/evaluation/download_history.py        # 9th and 23rd of each month of 2024
+.venv/bin/python -I scripts/evaluation/download_history.py --year 2024   # whole year, ~30 h
+.venv/bin/python -I scripts/evaluation/download_history.py               # or 24 sample days, ~2 h
 .venv/bin/python -I scripts/evaluation/evaluate_alerts_replay.py --source api
 ```
 
-`--days 2024-06-09,2024-08-09` limits either step to chosen days. The download is rate limited
-(set `NEA_API_KEY` in `services/.env` for a higher limit) and resumes from its cache. A whole-day
-query of the forecast archive only returns forecasts from about noon, so the earlier half-hourly
-forecasts are fetched one by one.
+The download is rate limited (about one page a second; set `NEA_API_KEY` in `services/.env` for a
+higher limit). Every page is cached, so it can be stopped and restarted at any time and picks up
+where it left off. `--year` fetches the 9th and 23rd of each month first, so even a partial run
+covers every season. The evaluation uses every day downloaded so far, and `--days
+2024-06-09,2024-08-09` limits either step to chosen days. A whole-day query of the forecast
+archive only returns forecasts from about noon, so the earlier half-hourly forecasts are
+fetched one by one.
 
 ## What is simulated
 
