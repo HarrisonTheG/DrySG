@@ -62,6 +62,9 @@ STEP = timedelta(minutes=5)
 DRY_GAP = timedelta(minutes=30)
 WARN_WINDOW = timedelta(hours=2)
 MIN_COVERAGE = 0.9  # share of 5-minute marks a session must have data for
+# Targets: an alert within one 5-minute ingest run of rain being measured, and an advance
+# warning at least this many minutes before the rain, enough to bring laundry in.
+ADVANCE_TARGET_MIN = 15
 
 _RANK = {Band.HANG_NOW: 0, Band.WAIT: 1, Band.DO_NOT_HANG: 2}
 
@@ -412,6 +415,11 @@ def _summarise(per_policy: dict, totals: dict) -> dict:
             if totals["onsets"]
             else None,
             "median_lead_min_when_early": statistics.median(s["lead_min"]) if s["lead_min"] else 0,
+            "warned_15min_before_pct": round(
+                100 * sum(m >= ADVANCE_TARGET_MIN for m in s["lead_min"]) / totals["onsets"], 1
+            )
+            if totals["onsets"]
+            else None,
             "rain_time_warned_pct": round(100 * s["rain_frames_warned"] / s["rain_frames"], 1)
             if s["rain_frames"]
             else None,
@@ -451,6 +459,7 @@ def print_table(report: dict) -> None:
         ("repeat in rain", "redundant_alerts"),
         ("onset warned %", "rain_onsets_warned_pct"),
         ("before rain %", "warned_before_rain_pct"),
+        (">=15 min before %", "warned_15min_before_pct"),
         ("lead min", "median_lead_min_when_early"),
         ("under-informed %", "under_informed_time_pct"),
         ("fcst precision %", "forecast_alert_precision_2h_pct"),
