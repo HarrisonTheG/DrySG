@@ -1,4 +1,4 @@
-import { CloudSun } from "lucide-react"
+import { CloudSun, Shirt } from "lucide-react"
 import { Link } from "react-router-dom"
 
 export function Header() {
@@ -15,12 +15,21 @@ export function Header() {
           </div>
         </Link>
 
-        <a
-          href="/#methodology"
-          className="hidden rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm font-medium text-slate-700 transition hover:bg-slate-50 sm:block"
-        >
-          How it works
-        </a>
+        <nav className="flex items-center gap-2">
+          <a
+            href="/#methodology"
+            className="hidden rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm font-medium text-slate-700 transition hover:bg-slate-50 sm:block"
+          >
+            How it works
+          </a>
+          <Link
+            to="/experience"
+            className="inline-flex items-center gap-2 rounded-xl bg-blue-600 px-3.5 py-2 text-sm font-semibold text-white shadow-sm transition hover:bg-blue-700"
+          >
+            <Shirt className="size-4" />
+            Experience
+          </Link>
+        </nav>
       </div>
     </header>
   )

@@ -29,6 +29,12 @@ from drysg.data import (
     UpstreamError,
 )
 from drysg.db import AreaSnapshotRepository, ConcurrentSessionUpdateError
+from drysg.experience.service import (
+    ExperienceRateLimitedError,
+    ExperienceService,
+    NoAlertAtFrameError,
+    ScenarioNotFoundError,
+)
 from drysg.sessions import (
     EmailNotVerifiedError,
     InvalidEmailError,
@@ -47,8 +53,10 @@ from .models import (
     ApiError,
     DryingRecommendation,
     ErrorBody,
+    ExperienceAlertSent,
     LaundrySession,
     RegisterUser,
+    SendExperienceAlert,
     StartLaundrySession,
     UserStatus,
     VerifyUser,
@@ -147,6 +155,7 @@ class ApiDeps:
     clock: Callable[[], datetime] = lambda: datetime.now(UTC)
     sessions: SessionService | None = None
     users: UserService | None = None
+    experience: ExperienceService | None = None
 
 
 def _fresh_snapshot(deps: ApiDeps, area: str) -> AreaSnapshot:
@@ -221,6 +230,9 @@ def create_app(
         ConcurrentSessionUpdateError: (409, "SESSION_CONFLICT"),
         ResendTooSoonError: (429, "RESEND_TOO_SOON"),
         EmailUnavailableError: (503, "EMAIL_UNAVAILABLE"),
+        ScenarioNotFoundError: (404, "SCENARIO_NOT_FOUND"),
+        NoAlertAtFrameError: (400, "NO_ALERT_AT_FRAME"),
+        ExperienceRateLimitedError: (429, "RATE_LIMITED"),
     }
 
     async def handle_domain_error(_: Request, exc: Exception) -> JSONResponse:
@@ -238,6 +250,7 @@ def create_app(
             "/laundry-sessions": "A JSON email and postalCode are required",
             "/users": "A JSON email is required",
             "/users/verify": "A JSON email and token are required",
+            "/experience/alert": "A JSON email, scenarioId and frame are required",
         }.get(request.url.path)
         if required is None:
             return await request_validation_exception_handler(request, exc)
@@ -396,6 +409,27 @@ def create_app(
         """Confirm the email with the emailed token."""
         status = user_service(deps).verify(body.email, body.token, now=deps.clock())
         return UserStatus(email=status.email, verified=status.verified)
+
+    @app.post(
+        "/experience/alert",
+        status_code=202,
+        response_model=ExperienceAlertSent,
+        responses={status: {"model": ApiError} for status in (400, 403, 404, 429, 503)},
+    )
+    def send_experience_alert(
+        body: SendExperienceAlert, deps: Annotated[ApiDeps, Depends(get_deps)]
+    ) -> ExperienceAlertSent:
+        """Email the alert an Experience replay raises at `frame`. Verified emails only."""
+        if deps.experience is None:
+            raise ApiProblem(
+                503, "EMAIL_UNAVAILABLE", "Email alerts are not configured"
+            )
+        sent = deps.experience.send_alert(
+            body.email, body.scenarioId, body.frame, now=deps.clock()
+        )
+        return ExperienceAlertSent(
+            email=sent.email, scenarioId=sent.scenario_id, frame=sent.frame
+        )
 
     @app.get("/health", include_in_schema=False)
     def health() -> dict[str, str]:

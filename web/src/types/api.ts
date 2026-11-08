@@ -57,6 +57,12 @@ export interface StartLaundrySessionInput {
   email: string
 }
 
+export interface ExperienceAlertSent {
+  email: string
+  scenarioId: string
+  frame: number
+}
+
 export interface UserStatus {
   email: string
   verified: boolean
@@ -73,6 +79,9 @@ export type ApiErrorCode =
   | "SESSION_NOT_FOUND"
   | "SESSION_CONFLICT"
   | "RESEND_TOO_SOON"
+  | "SCENARIO_NOT_FOUND"
+  | "NO_ALERT_AT_FRAME"
+  | "RATE_LIMITED"
   | "DATA_UNAVAILABLE"
   | "EMAIL_UNAVAILABLE"
   | "INTERNAL_ERROR"
